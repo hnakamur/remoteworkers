@@ -5,12 +5,15 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
 	"log"
+	"math/rand"
 	"net/url"
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -18,10 +21,18 @@ import (
 
 var addr = flag.String("addr", "localhost:8080", "http service address")
 var clientID = flag.String("client-id", "client1", "client ID")
+var minDelay = flag.Duration("min-delay", 1*time.Second, "min delay")
+var maxDelay = flag.Duration("max-delay", 2*time.Second, "max delay")
+
+func randomDelay() time.Duration {
+	return time.Duration(int64(*minDelay) + rand.Int63n(int64(*maxDelay)-int64(*minDelay)))
+}
 
 func main() {
 	flag.Parse()
 	log.SetFlags(0)
+
+	rand.Seed(int64(time.Now().Unix()))
 
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, os.Interrupt)
@@ -36,6 +47,7 @@ func main() {
 	defer c.Close()
 
 	done := make(chan struct{})
+	send := make(chan []byte, 256)
 
 	go func() {
 		defer c.Close()
@@ -47,20 +59,37 @@ func main() {
 				return
 			}
 			log.Printf("recv: %s", message)
+
+			if !bytes.Contains(message, []byte{';'}) {
+				go func() {
+					time.Sleep(randomDelay())
+					send <- []byte(fmt.Sprintf("%s;%s", message, *clientID))
+				}()
+			}
 		}
 	}()
 
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
+	timer := time.NewTimer(randomDelay())
+	defer timer.Stop()
+	var messageID uint64
 
 	for {
 		select {
-		case t := <-ticker.C:
-			err := c.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("%s,%s", *clientID, t.String())))
+		case <-timer.C:
+			msg := fmt.Sprintf("%s,%d", *clientID, atomic.AddUint64(&messageID, 1))
+			err := c.WriteMessage(websocket.TextMessage, []byte(msg))
 			if err != nil {
 				log.Println("write:", err)
 				return
 			}
+			timer.Reset(randomDelay())
+		case b := <-send:
+			err = c.WriteMessage(websocket.TextMessage, b)
+			if err != nil {
+				log.Println("write:", err)
+				return
+			}
+
 		case <-interrupt:
 			log.Println("interrupt")
 			// To cleanly close a connection, a client should send a close
