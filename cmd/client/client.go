@@ -22,7 +22,7 @@ import (
 
 var addr = flag.String("addr", "localhost:8080", "http service address")
 var clientID = flag.String("client-id", "client1", "client ID")
-var minDelay = flag.Duration("min-delay", 3*time.Second, "min delay")
+var minDelay = flag.Duration("min-delay", 1*time.Second, "min delay")
 var maxDelay = flag.Duration("max-delay", 5*time.Second, "max delay")
 
 func randomDelay() time.Duration {

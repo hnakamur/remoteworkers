@@ -38,10 +38,12 @@ type Hub struct {
 	registerWorkerResult chan bool
 
 	// Inbound messages from the connections.
-	broadcastToWorkers chan msg.Job
+	broadcastToWorkers chan jobRequest
 
 	// working job results
-	jobResults map[uint64]map[uint64]*msg.JobResult
+	jobResults map[uint64]*jobResultsBuffer
+
+	jobResultOrErrorC chan jobResultOrError
 }
 
 var hub = Hub{
@@ -52,8 +54,51 @@ var hub = Hub{
 	registerWorker:       make(chan *Conn),
 	registerWorkerResult: make(chan bool),
 	workers:              make(map[uint64]*Conn),
-	broadcastToWorkers:   make(chan msg.Job),
-	jobResults:           make(map[uint64]map[uint64]*msg.JobResult),
+	broadcastToWorkers:   make(chan jobRequest),
+	jobResults:           make(map[uint64]*jobResultsBuffer),
+	jobResultOrErrorC:    make(chan jobResultOrError),
+}
+
+type jobRequest struct {
+	conn *Conn
+	job  msg.Job
+}
+
+type jobResultsBuffer struct {
+	conn    *Conn
+	results map[uint64]*msg.JobResult
+}
+
+func (b *jobResultsBuffer) gotAllResults() bool {
+	for _, r := range b.results {
+		if r == nil {
+			return false
+		}
+	}
+	return true
+}
+
+func (b *jobResultsBuffer) JobResults() msg.JobResults {
+	r := msg.JobResults{
+		Results: make([]msg.JobResult, 0, len(b.results)),
+	}
+	for _, br := range b.results {
+		r.JobID = br.JobID
+		r.Results = append(r.Results, *br)
+	}
+	return r
+}
+
+func newJobResultsBuffer(c *Conn) *jobResultsBuffer {
+	return &jobResultsBuffer{
+		conn:    c,
+		results: make(map[uint64]*msg.JobResult),
+	}
+}
+
+type jobResultOrError struct {
+	result *msg.JobResult
+	err    error
 }
 
 func (h *Hub) run() {
@@ -84,7 +129,8 @@ func (h *Hub) run() {
 			}
 			h.workers[workerID] = conn
 			h.registerWorkerResult <- true
-		case job := <-h.broadcastToWorkers:
+		case req := <-h.broadcastToWorkers:
+			job := req.job
 			message, err := msgpack.Marshal(msg.JobMsg, &job)
 			if err != nil {
 				ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "encode error"},
@@ -92,18 +138,38 @@ func (h *Hub) run() {
 					ltsvlog.LV{"err", err})
 				return
 			}
-			resultsMap := make(map[uint64]*msg.JobResult)
+			resultsBuf := newJobResultsBuffer(req.conn)
 			for workerID, conn := range h.workers {
 				select {
 				case conn.send <- message:
-					resultsMap[workerID] = nil
+					resultsBuf.results[workerID] = nil
 				default:
 					close(conn.send)
 					delete(hub.connections, conn)
 				}
 			}
-			if len(resultsMap) > 0 {
-				h.jobResults[job.JobID] = resultsMap
+			if len(resultsBuf.results) > 0 {
+				h.jobResults[job.JobID] = resultsBuf
+			}
+		case roe := <-h.jobResultOrErrorC:
+			if roe.err != nil {
+				//TODO: error handling
+			} else {
+				res := roe.result
+				resultsBuf := h.jobResults[res.JobID]
+				resultsBuf.results[res.WorkerID] = res
+				if resultsBuf.gotAllResults() {
+					jobResults := resultsBuf.JobResults()
+					message, err := msgpack.Marshal(msg.JobResultsMsg, &jobResults)
+					if err != nil {
+						ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "encode error"},
+							ltsvlog.LV{"jobResults", jobResults},
+							ltsvlog.LV{"err", err})
+						return
+					}
+					resultsBuf.conn.send <- message
+					delete(h.jobResults, res.JobID)
+				}
 			}
 		}
 	}

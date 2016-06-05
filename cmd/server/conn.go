@@ -128,7 +128,7 @@ func (c *Conn) readPump() {
 				ltsvlog.Logger.Debug(ltsvlog.LV{"msg", "received Job"},
 					ltsvlog.LV{"job", job})
 			}
-			hub.broadcastToWorkers <- job
+			hub.broadcastToWorkers <- jobRequest{conn: c, job: job}
 
 		case msg.JobResultMsg:
 			var jobResult msg.JobResult
@@ -142,6 +142,10 @@ func (c *Conn) readPump() {
 			ltsvlog.Logger.Info(ltsvlog.LV{"msg", "received JobResult"},
 				ltsvlog.LV{"jobResult", jobResult})
 
+			roe := jobResultOrError{
+				result: &jobResult,
+			}
+			hub.jobResultOrErrorC <- roe
 		default:
 			ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "unexpected MessageType"},
 				ltsvlog.LV{"messageType", msgType})
