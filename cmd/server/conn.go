@@ -60,7 +60,7 @@ func (c *Conn) readPump() {
 	for {
 		wsMsgType, r, err := c.ws.NextReader()
 		if err != nil {
-			ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "read error"},
+			ltsvlog.Logger.Error(ltsvlog.LV{"msg", "read error"},
 				ltsvlog.LV{"err", err})
 			return
 		}
