@@ -50,6 +50,7 @@ type Conn struct {
 // readPump pumps messages from the websocket connection to the hub.
 func (c *Conn) readPump() {
 	defer func() {
+		hub.unregisterWorker <- c
 		hub.unregister <- c
 		c.ws.Close()
 	}()

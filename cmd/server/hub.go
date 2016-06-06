@@ -5,6 +5,7 @@
 package main
 
 import (
+	"sort"
 	"sync/atomic"
 
 	"github.com/hnakamur/ltsvlog"
@@ -34,6 +35,9 @@ type Hub struct {
 	// Register worker requests from connections.
 	registerWorker chan *Conn
 
+	// Unregister worker requests from connections.
+	unregisterWorker chan *Conn
+
 	// Register worker results to connections.
 	registerWorkerResult chan bool
 
@@ -52,6 +56,7 @@ var hub = Hub{
 	unregister:           make(chan *Conn),
 	connections:          make(map[*Conn]bool),
 	registerWorker:       make(chan *Conn),
+	unregisterWorker:     make(chan *Conn),
 	registerWorkerResult: make(chan bool),
 	workers:              make(map[uint64]*Conn),
 	broadcastToWorkers:   make(chan jobRequest),
@@ -128,7 +133,19 @@ func (h *Hub) run() {
 				continue
 			}
 			h.workers[workerID] = conn
+			ltsvlog.Logger.Info(ltsvlog.LV{"msg", "registered worker"},
+				ltsvlog.LV{"worker_id", workerID},
+				ltsvlog.LV{"worker_ids", h.WorkerIDs()})
 			h.registerWorkerResult <- true
+		case conn := <-h.unregisterWorker:
+			workerID := atomic.LoadUint64(&conn.workerID)
+			delete(h.workers, workerID)
+			for _, b := range h.jobResults {
+				delete(b.results, workerID)
+			}
+			ltsvlog.Logger.Info(ltsvlog.LV{"msg", "unregistered worker"},
+				ltsvlog.LV{"worker_id", workerID},
+				ltsvlog.LV{"worker_ids", h.WorkerIDs()})
 		case req := <-h.broadcastToWorkers:
 			job := req.job
 			message, err := msgpack.Marshal(msg.JobMsg, &job)
@@ -173,4 +190,19 @@ func (h *Hub) run() {
 			}
 		}
 	}
+}
+
+type uint64Array []uint64
+
+func (a uint64Array) Len() int           { return len(a) }
+func (a uint64Array) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a uint64Array) Less(i, j int) bool { return a[i] < a[j] }
+
+func (h *Hub) WorkerIDs() []uint64 {
+	workerIDs := make([]uint64, 0, len(h.workers))
+	for workerID := range h.workers {
+		workerIDs = append(workerIDs, workerID)
+	}
+	sort.Sort(uint64Array(workerIDs))
+	return workerIDs
 }
