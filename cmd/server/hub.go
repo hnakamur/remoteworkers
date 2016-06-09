@@ -27,9 +27,6 @@ type Hub struct {
 	// Unregister worker requests from connections.
 	unregisterWorkerC chan *Conn
 
-	// Register worker results to connections.
-	registerWorkerResult chan bool
-
 	// Inbound messages from the connections.
 	broadcastToWorkersC chan jobRequestToHub
 
