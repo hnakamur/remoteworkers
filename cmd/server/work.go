@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strconv"
 
 	"bitbucket.org/hnakamur/ws_surveyor/msg"
 
@@ -16,6 +17,7 @@ type workRequest struct {
 }
 
 type workResponse struct {
+	JobID   string                 `json:"job_id"`
 	Results map[string]interface{} `json:"results"`
 }
 
@@ -25,6 +27,9 @@ func newWorkResponse(res jobResult) *workResponse {
 	}
 	for workerID, r := range res.results {
 		data := make(map[string]bool)
+		if workRes.JobID == "" {
+			workRes.JobID = strconv.FormatUint(uint64(r.result.JobID), 10)
+		}
 		for k, v := range r.result.Data.(map[interface{}]interface{}) {
 			data[k.(string)] = v.(bool)
 		}

@@ -90,6 +90,7 @@ func (c *Conn) readPump() {
 			}
 
 			ltsvlog.Logger.Info(ltsvlog.LV{"msg", "received WorkerResult"},
+				ltsvlog.LV{"workerID", c.workerID},
 				ltsvlog.LV{"workerResult", res})
 
 			hub.workerResultToHubC <- workerResult{
