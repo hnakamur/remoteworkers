@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"strings"
 	"time"
 
 	"bitbucket.org/hnakamur/ws_surveyor/msg"
@@ -20,7 +21,7 @@ import (
 )
 
 var addr = flag.String("addr", "localhost:8080", "http service address")
-var workerID = flag.Uint64("id", 1, "worker ID")
+var workerID = flag.String("id", "worker1", "worker ID")
 var minDelay = flag.Duration("min-delay", 1*time.Second, "min delay")
 var maxDelay = flag.Duration("max-delay", 5*time.Second, "max delay")
 
@@ -30,8 +31,8 @@ func randomDelay() time.Duration {
 
 func main() {
 	flag.Parse()
-	if *workerID == 0 {
-		ltsvlog.Logger.Error(ltsvlog.LV{"msg", "worker must not be zero"})
+	if *workerID == "" {
+		ltsvlog.Logger.Error(ltsvlog.LV{"msg", "worker must not be empty"})
 		os.Exit(1)
 	}
 
@@ -40,16 +41,18 @@ func main() {
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, os.Interrupt)
 
+	header := map[string][]string{
+		"X-Worker-ID": []string{*workerID},
+	}
 	u := url.URL{Scheme: "ws", Host: *addr, Path: "/ws"}
 	ltsvlog.Logger.Info(ltsvlog.LV{"msg", "connecting to server"}, ltsvlog.LV{"address", u.String()})
 
 	for {
 		done := make(chan struct{})
 		send := make(chan []byte, 256)
-		var b []byte
 		var err error
 
-		c, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
+		c, _, err := websocket.DefaultDialer.Dial(u.String(), header)
 		if err != nil {
 			ltsvlog.Logger.Error(ltsvlog.LV{"msg", "dial error"},
 				ltsvlog.LV{"address", u.String()},
@@ -83,22 +86,21 @@ func main() {
 				}
 				switch msgType {
 				case msg.RegisterWorkerResultMsg:
-					var res msg.RegisterWorkerResult
-					err := dec.Decode(&res)
+					var registerWorkerResult msg.RegisterWorkerResult
+					err := dec.Decode(&registerWorkerResult)
 					if err != nil {
 						ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "decode error"},
 							ltsvlog.LV{"err", err})
 						return
 					}
-
-					if !res.Registered {
-						ltsvlog.Logger.Error(ltsvlog.LV{"msg", "failed to register myself as worker"})
-						os.Exit(2)
+					if registerWorkerResult.Error != "" {
+						ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "failed to register worker"},
+							ltsvlog.LV{"workerID", *workerID},
+							ltsvlog.LV{"err", registerWorkerResult.Error})
+						os.Exit(1)
 					}
-					if ltsvlog.Logger.DebugEnabled() {
-						ltsvlog.Logger.Debug(ltsvlog.LV{"msg", "registered myself as a worker"},
-							ltsvlog.LV{"workerID", *workerID})
-					}
+					ltsvlog.Logger.Info(ltsvlog.LV{"msg", "registered myself as worker"},
+						ltsvlog.LV{"workerID", *workerID})
 				case msg.JobMsg:
 					var job msg.Job
 					err := dec.Decode(&job)
@@ -116,18 +118,18 @@ func main() {
 					go func() {
 						time.Sleep(randomDelay())
 
-						jobResult := msg.JobResult{
-							WorkerID: *workerID,
-							JobID:    job.JobID,
-							Results:  make([]msg.TargetResult, len(job.Targets)),
+						// NOTE: Do some work.
+						targets := strings.Split(job.Params["targets"], ",")
+						results := make(map[string]bool)
+						jobResult := msg.WorkerResult{
+							JobID: job.ID,
+							Data:  results,
 						}
-						for i, target := range job.Targets {
-							jobResult.Results[i] = msg.TargetResult{
-								Target: target,
-								Result: "success",
-							}
+						for _, target := range targets {
+							results[target] = true
 						}
-						b, err := msgpack.Marshal(msg.JobResultMsg, &jobResult)
+
+						b, err := msgpack.Marshal(msg.WorkerResultMsg, &jobResult)
 						if err != nil {
 							ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "encode error"},
 								ltsvlog.LV{"jobResult", jobResult},
@@ -144,21 +146,6 @@ func main() {
 			}
 		}()
 
-		b, err = msgpack.Marshal(msg.RegisterWorkerMsg, &msg.RegisterWorker{WorkerID: *workerID})
-		if err != nil {
-			ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "encode RegisterWorker error"},
-				ltsvlog.LV{"err", err})
-			os.Exit(1)
-		}
-		err = c.WriteMessage(websocket.BinaryMessage, b)
-		if err != nil {
-			ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "write error"},
-				ltsvlog.LV{"err", err})
-			os.Exit(1)
-		}
-		if ltsvlog.Logger.DebugEnabled() {
-			ltsvlog.Logger.Debug(ltsvlog.LV{"msg", "sent RegisterWorker"}, ltsvlog.LV{"worker_id", *workerID})
-		}
 		for {
 			select {
 			case b := <-send:

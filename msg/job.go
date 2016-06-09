@@ -2,9 +2,12 @@ package msg
 
 import "gopkg.in/vmihailenco/msgpack.v2"
 
+type JobID uint64
+
 type Job struct {
-	JobID   uint64
-	Targets []string
+	ID     JobID             `json:"-"`
+	Type   string            `json:"type"`
+	Params map[string]string `json:"params,omitempty"`
 }
 
 var (
@@ -13,9 +16,9 @@ var (
 )
 
 func (j *Job) EncodeMsgpack(enc *msgpack.Encoder) error {
-	return enc.Encode(j.JobID, j.Targets)
+	return enc.Encode(j.ID, j.Type, j.Params)
 }
 
 func (j *Job) DecodeMsgpack(enc *msgpack.Decoder) error {
-	return enc.Decode(&j.JobID, &j.Targets)
+	return enc.Decode(&j.ID, &j.Type, &j.Params)
 }

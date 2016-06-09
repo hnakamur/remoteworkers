@@ -6,6 +6,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"text/template"
@@ -31,7 +32,9 @@ func main() {
 	flag.Parse()
 	go hub.run()
 	http.HandleFunc("/", serveHome)
+	http.HandleFunc("/work", serveWork)
 	http.HandleFunc("/ws", serveWs)
+	fmt.Printf("server start listening %s...\n", *addr)
 	err := http.ListenAndServe(*addr, nil)
 	if err != nil {
 		log.Fatal("ListenAndServe: ", err)

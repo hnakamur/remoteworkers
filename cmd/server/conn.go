@@ -7,7 +7,6 @@ package main
 import (
 	"log"
 	"net/http"
-	"sync/atomic"
 	"time"
 
 	"bitbucket.org/hnakamur/ws_surveyor/msg"
@@ -28,6 +27,9 @@ const (
 
 	// Maximum message size allowed from peer.
 	maxMessageSize = 512
+
+	// WorkerID header name
+	WorkerIDHeaderName = "X-Worker-ID"
 )
 
 var upgrader = websocket.Upgrader{
@@ -43,15 +45,14 @@ type Conn struct {
 	// Buffered channel of outbound messages.
 	send chan []byte
 
-	// Worker ID. Zero means this is not a worker.
-	workerID uint64
+	// Worker ID
+	workerID string
 }
 
 // readPump pumps messages from the websocket connection to the hub.
 func (c *Conn) readPump() {
 	defer func() {
-		hub.unregisterWorker <- c
-		hub.unregister <- c
+		hub.unregisterWorkerC <- c
 		c.ws.Close()
 	}()
 	c.ws.SetReadLimit(maxMessageSize)
@@ -79,74 +80,22 @@ func (c *Conn) readPump() {
 			return
 		}
 		switch msgType {
-		case msg.RegisterWorkerMsg:
-			var registerWorker msg.RegisterWorker
-			err := dec.Decode(&registerWorker)
+		case msg.WorkerResultMsg:
+			var res msg.WorkerResult
+			err := dec.Decode(&res)
 			if err != nil {
 				ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "decode error"},
 					ltsvlog.LV{"err", err})
 				return
 			}
 
-			if ltsvlog.Logger.DebugEnabled() {
-				ltsvlog.Logger.Debug(ltsvlog.LV{"msg", "received RegisterWorker"},
-					ltsvlog.LV{"registerWorker", registerWorker})
-			}
+			ltsvlog.Logger.Info(ltsvlog.LV{"msg", "received WorkerResult"},
+				ltsvlog.LV{"workerResult", res})
 
-			atomic.StoreUint64(&c.workerID, registerWorker.WorkerID)
-			if ltsvlog.Logger.DebugEnabled() {
-				ltsvlog.Logger.Debug(ltsvlog.LV{"msg", "updated workerID in connection"})
+			hub.workerResultToHubC <- workerResult{
+				workerID: c.workerID,
+				result:   &res,
 			}
-			hub.registerWorker <- c
-			if ltsvlog.Logger.DebugEnabled() {
-				ltsvlog.Logger.Debug(ltsvlog.LV{"msg", "sent conn to hub.registerWorker"})
-			}
-			registered := <-hub.registerWorkerResult
-			if ltsvlog.Logger.DebugEnabled() {
-				ltsvlog.Logger.Debug(ltsvlog.LV{"msg", "received result from hub.registerWorkerResult"},
-					ltsvlog.LV{"registered", registered})
-			}
-			registerWorkerResult := msg.RegisterWorkerResult{Registered: registered}
-			b, err := msgpack.Marshal(msg.RegisterWorkerResultMsg, &registerWorkerResult)
-			if err != nil {
-				ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "encode error"},
-					ltsvlog.LV{"registerWorkerResult", registerWorkerResult},
-					ltsvlog.LV{"err", err})
-				return
-			}
-			c.send <- b
-
-		case msg.JobMsg:
-			var job msg.Job
-			err := dec.Decode(&job)
-			if err != nil {
-				ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "decode error"},
-					ltsvlog.LV{"err", err})
-				return
-			}
-
-			if ltsvlog.Logger.DebugEnabled() {
-				ltsvlog.Logger.Debug(ltsvlog.LV{"msg", "received Job"},
-					ltsvlog.LV{"job", job})
-			}
-			hub.broadcastToWorkers <- jobRequest{conn: c, job: job}
-
-		case msg.JobResultMsg:
-			var jobResult msg.JobResult
-			err := dec.Decode(&jobResult)
-			if err != nil {
-				ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "decode error"},
-					ltsvlog.LV{"err", err})
-				return
-			}
-
-			ltsvlog.Logger.Info(ltsvlog.LV{"msg", "received JobResult"},
-				ltsvlog.LV{"jobResult", jobResult})
-
-			roe := jobResultOrError{
-				result: &jobResult,
-			}
-			hub.jobResultOrErrorC <- roe
 		default:
 			ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "unexpected MessageType"},
 				ltsvlog.LV{"messageType", msgType})
@@ -188,13 +137,40 @@ func (c *Conn) writePump() {
 
 // serveWs handles websocket requests from the peer.
 func serveWs(w http.ResponseWriter, r *http.Request) {
+	ltsvlog.Logger.Info(ltsvlog.LV{"msg", "serveWs"}, ltsvlog.LV{"header", r.Header})
+	workerID := r.Header.Get(WorkerIDHeaderName)
+	if workerID == "" {
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		return
+	}
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Println(err)
 		return
 	}
-	conn := &Conn{send: make(chan []byte, 256), ws: ws}
-	hub.register <- conn
+	conn := &Conn{send: make(chan []byte, 256), ws: ws, workerID: workerID}
+
+	registeredC := make(chan bool)
+	req := registerWorkerRequest{
+		conn:    conn,
+		resultC: registeredC,
+	}
+	hub.registerWorkerC <- req
+	registered := <-registeredC
+	var registerWorkerResult msg.RegisterWorkerResult
+	if !registered {
+		registerWorkerResult.Error = "woker with same name already exists"
+	}
+	message, err := msgpack.Marshal(msg.RegisterWorkerResultMsg, &registerWorkerResult)
+	if err != nil {
+		ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "encode error"},
+			ltsvlog.LV{"registerWorkerResult", registerWorkerResult},
+			ltsvlog.LV{"err", err})
+		close(conn.send)
+		return
+	}
+	conn.send <- message
+
 	go conn.writePump()
 	conn.readPump()
 }

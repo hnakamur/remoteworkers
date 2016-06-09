@@ -5,6 +5,7 @@
 package main
 
 import (
+	"errors"
 	"sort"
 	"sync/atomic"
 
@@ -17,64 +18,78 @@ import (
 // hub maintains the set of active connections and broadcasts messages to the
 // connections.
 type Hub struct {
-	// Registered connections.
-	connections map[*Conn]bool
-
-	// Inbound messages from the connections.
-	broadcast chan []byte
-
-	// Register requests from the connections.
-	register chan *Conn
-
-	// Unregister requests from connections.
-	unregister chan *Conn
-
 	// Registered workers.
-	workers map[uint64]*Conn
+	workers map[string]*Conn
 
 	// Register worker requests from connections.
-	registerWorker chan *Conn
+	registerWorkerC chan registerWorkerRequest
 
 	// Unregister worker requests from connections.
-	unregisterWorker chan *Conn
+	unregisterWorkerC chan *Conn
 
 	// Register worker results to connections.
 	registerWorkerResult chan bool
 
 	// Inbound messages from the connections.
-	broadcastToWorkers chan jobRequest
+	broadcastToWorkersC chan jobRequestToHub
 
-	// working job results
-	jobResults map[uint64]*jobResultsBuffer
+	// worker results buffers
+	workerResultsBuffers map[msg.JobID]*workerResultsBuffer
 
-	jobResultOrErrorC chan jobResultOrError
+	// channel for worker result
+	workerResultToHubC chan workerResult
+
+	// job ID
+	jobID uint64
 }
 
 var hub = Hub{
-	broadcast:            make(chan []byte),
-	register:             make(chan *Conn),
-	unregister:           make(chan *Conn),
-	connections:          make(map[*Conn]bool),
-	registerWorker:       make(chan *Conn),
-	unregisterWorker:     make(chan *Conn),
-	registerWorkerResult: make(chan bool),
-	workers:              make(map[uint64]*Conn),
-	broadcastToWorkers:   make(chan jobRequest),
-	jobResults:           make(map[uint64]*jobResultsBuffer),
-	jobResultOrErrorC:    make(chan jobResultOrError),
+	registerWorkerC:   make(chan registerWorkerRequest),
+	unregisterWorkerC: make(chan *Conn),
+	workers:           make(map[string]*Conn),
+
+	broadcastToWorkersC:  make(chan jobRequestToHub),
+	workerResultsBuffers: make(map[msg.JobID]*workerResultsBuffer),
+	workerResultToHubC:   make(chan workerResult),
 }
 
-type jobRequest struct {
-	conn *Conn
-	job  msg.Job
-}
-
-type jobResultsBuffer struct {
+type registerWorkerRequest struct {
 	conn    *Conn
-	results map[uint64]*msg.JobResult
+	resultC chan bool
 }
 
-func (b *jobResultsBuffer) gotAllResults() bool {
+type jobRequestToHub struct {
+	job     msg.Job
+	resultC chan jobResultOrError
+}
+
+type jobResult struct {
+	results map[string]*workerResult
+}
+
+type jobResultOrError struct {
+	result jobResult
+	err    error
+}
+
+type workerResult struct {
+	workerID string
+	result   *msg.WorkerResult
+}
+
+type workerResultsBuffer struct {
+	resultC chan jobResultOrError
+	results map[string]*workerResult
+}
+
+func newWorkerResultsBuffer(resultC chan jobResultOrError) *workerResultsBuffer {
+	return &workerResultsBuffer{
+		resultC: resultC,
+		results: make(map[string]*workerResult),
+	}
+}
+
+func (b *workerResultsBuffer) gotAllResults() bool {
 	for _, r := range b.results {
 		if r == nil {
 			return false
@@ -83,71 +98,43 @@ func (b *jobResultsBuffer) gotAllResults() bool {
 	return true
 }
 
-func (b *jobResultsBuffer) JobResults() msg.JobResults {
-	r := msg.JobResults{
-		Results: make([]msg.JobResult, 0, len(b.results)),
-	}
-	for _, br := range b.results {
-		r.JobID = br.JobID
-		r.Results = append(r.Results, *br)
-	}
-	return r
-}
-
-func newJobResultsBuffer(c *Conn) *jobResultsBuffer {
-	return &jobResultsBuffer{
-		conn:    c,
-		results: make(map[uint64]*msg.JobResult),
-	}
-}
-
-type jobResultOrError struct {
-	result *msg.JobResult
-	err    error
-}
-
 func (h *Hub) run() {
 	for {
 		select {
-		case conn := <-h.register:
-			h.connections[conn] = true
-		case conn := <-h.unregister:
-			if _, ok := h.connections[conn]; ok {
-				delete(h.connections, conn)
-				close(conn.send)
-			}
-		case message := <-h.broadcast:
-			for conn := range h.connections {
-				select {
-				case conn.send <- message:
-				default:
-					close(conn.send)
-					delete(hub.connections, conn)
-				}
-			}
-		case conn := <-h.registerWorker:
-			workerID := atomic.LoadUint64(&conn.workerID)
+		case req := <-h.registerWorkerC:
+			workerID := req.conn.workerID
 			_, exists := h.workers[workerID]
 			if exists {
-				h.registerWorkerResult <- false
+				req.resultC <- false
 				continue
 			}
-			h.workers[workerID] = conn
+			h.workers[workerID] = req.conn
 			ltsvlog.Logger.Info(ltsvlog.LV{"msg", "registered worker"},
 				ltsvlog.LV{"worker_id", workerID},
 				ltsvlog.LV{"worker_ids", h.WorkerIDs()})
-			h.registerWorkerResult <- true
-		case conn := <-h.unregisterWorker:
-			workerID := atomic.LoadUint64(&conn.workerID)
+			req.resultC <- true
+		case conn := <-h.unregisterWorkerC:
+			workerID := conn.workerID
+			if h.workers[workerID] != conn {
+				continue
+			}
 			delete(h.workers, workerID)
-			for _, b := range h.jobResults {
+			close(conn.send)
+			for _, b := range h.workerResultsBuffers {
 				delete(b.results, workerID)
 			}
 			ltsvlog.Logger.Info(ltsvlog.LV{"msg", "unregistered worker"},
 				ltsvlog.LV{"worker_id", workerID},
 				ltsvlog.LV{"worker_ids", h.WorkerIDs()})
-		case req := <-h.broadcastToWorkers:
+			for jobID, resultsBuf := range h.workerResultsBuffers {
+				if resultsBuf.gotAllResults() {
+					resultsBuf.resultC <- jobResultOrError{result: jobResult{results: resultsBuf.results}}
+					delete(h.workerResultsBuffers, jobID)
+				}
+			}
+		case req := <-h.broadcastToWorkersC:
 			job := req.job
+			job.ID = msg.JobID(atomic.AddUint64(&h.jobID, 1))
 			message, err := msgpack.Marshal(msg.JobMsg, &job)
 			if err != nil {
 				ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "encode error"},
@@ -155,54 +142,38 @@ func (h *Hub) run() {
 					ltsvlog.LV{"err", err})
 				return
 			}
-			resultsBuf := newJobResultsBuffer(req.conn)
+			resultsBuf := newWorkerResultsBuffer(req.resultC)
 			for workerID, conn := range h.workers {
 				select {
 				case conn.send <- message:
 					resultsBuf.results[workerID] = nil
 				default:
 					close(conn.send)
-					delete(hub.connections, conn)
+					delete(hub.workers, workerID)
 				}
 			}
 			if len(resultsBuf.results) > 0 {
-				h.jobResults[job.JobID] = resultsBuf
-			}
-		case roe := <-h.jobResultOrErrorC:
-			if roe.err != nil {
-				//TODO: error handling
+				h.workerResultsBuffers[job.ID] = resultsBuf
 			} else {
-				res := roe.result
-				resultsBuf := h.jobResults[res.JobID]
-				resultsBuf.results[res.WorkerID] = res
-				if resultsBuf.gotAllResults() {
-					jobResults := resultsBuf.JobResults()
-					message, err := msgpack.Marshal(msg.JobResultsMsg, &jobResults)
-					if err != nil {
-						ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "encode error"},
-							ltsvlog.LV{"jobResults", jobResults},
-							ltsvlog.LV{"err", err})
-						return
-					}
-					resultsBuf.conn.send <- message
-					delete(h.jobResults, res.JobID)
-				}
+				req.resultC <- jobResultOrError{err: errors.New("no worker")}
+			}
+		case res := <-h.workerResultToHubC:
+			jobID := res.result.JobID
+			resultsBuf := h.workerResultsBuffers[jobID]
+			resultsBuf.results[res.workerID] = &res
+			if resultsBuf.gotAllResults() {
+				resultsBuf.resultC <- jobResultOrError{result: jobResult{results: resultsBuf.results}}
+				delete(h.workerResultsBuffers, jobID)
 			}
 		}
 	}
 }
 
-type uint64Array []uint64
-
-func (a uint64Array) Len() int           { return len(a) }
-func (a uint64Array) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
-func (a uint64Array) Less(i, j int) bool { return a[i] < a[j] }
-
-func (h *Hub) WorkerIDs() []uint64 {
-	workerIDs := make([]uint64, 0, len(h.workers))
+func (h *Hub) WorkerIDs() []string {
+	workerIDs := make([]string, 0, len(h.workers))
 	for workerID := range h.workers {
 		workerIDs = append(workerIDs, workerID)
 	}
-	sort.Sort(uint64Array(workerIDs))
+	sort.Sort(sort.StringSlice(workerIDs))
 	return workerIDs
 }
