@@ -61,7 +61,7 @@ type jobRequestToHub struct {
 }
 
 type jobResult struct {
-	results map[string]*workerResult
+	results map[string]*msg.WorkerResult
 }
 
 type jobResultOrError struct {
@@ -76,13 +76,13 @@ type workerResult struct {
 
 type workerResultsBuffer struct {
 	resultC chan jobResultOrError
-	results map[string]*workerResult
+	results map[string]*msg.WorkerResult
 }
 
 func newWorkerResultsBuffer(resultC chan jobResultOrError) *workerResultsBuffer {
 	return &workerResultsBuffer{
 		resultC: resultC,
-		results: make(map[string]*workerResult),
+		results: make(map[string]*msg.WorkerResult),
 	}
 }
 
@@ -157,7 +157,7 @@ func (h *Hub) run() {
 		case res := <-h.workerResultToHubC:
 			jobID := res.result.JobID
 			resultsBuf := h.workerResultsBuffers[jobID]
-			resultsBuf.results[res.workerID] = &res
+			resultsBuf.results[res.workerID] = res.result
 			if resultsBuf.gotAllResults() {
 				resultsBuf.resultC <- jobResultOrError{result: jobResult{results: resultsBuf.results}}
 				delete(h.workerResultsBuffers, jobID)

@@ -28,9 +28,9 @@ func newWorkResponse(res jobResult) *workResponse {
 	for workerID, r := range res.results {
 		data := make(map[string]bool)
 		if workRes.JobID == "" {
-			workRes.JobID = strconv.FormatUint(uint64(r.result.JobID), 10)
+			workRes.JobID = strconv.FormatUint(uint64(r.JobID), 10)
 		}
-		for k, v := range r.result.Data.(map[interface{}]interface{}) {
+		for k, v := range r.Data.(map[interface{}]interface{}) {
 			data[k.(string)] = v.(bool)
 		}
 		workRes.Results[workerID] = data
