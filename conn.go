@@ -1,11 +1,6 @@
-// Copyright 2013 The Gorilla WebSocket Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style
-// license that can be found in the LICENSE file.
-
-package main
+package ws_surveyor
 
 import (
-	"net/http"
 	"time"
 
 	"bitbucket.org/hnakamur/ws_surveyor/msg"
@@ -38,20 +33,23 @@ var upgrader = websocket.Upgrader{
 
 // Conn is an middleman between the websocket connection and the hub.
 type Conn struct {
+	// The hub.
+	hub *Hub
+
 	// The websocket connection.
 	ws *websocket.Conn
 
 	// Buffered channel of outbound messages.
 	send chan []byte
 
-	// Worker ID
+	// Worker ID.
 	workerID string
 }
 
 // readPump pumps messages from the websocket connection to the hub.
 func (c *Conn) readPump() {
 	defer func() {
-		hub.unregisterWorkerC <- c
+		c.hub.unregisterWorkerC <- c
 		c.ws.Close()
 	}()
 	c.ws.SetReadLimit(maxMessageSize)
@@ -92,7 +90,7 @@ func (c *Conn) readPump() {
 				ltsvlog.LV{"workerID", c.workerID},
 				ltsvlog.LV{"workerResult", res})
 
-			hub.workerResultToHubC <- workerResult{
+			c.hub.workerResultToHubC <- workerResult{
 				workerID: c.workerID,
 				result:   &res,
 			}
@@ -110,7 +108,7 @@ func (c *Conn) write(mt int, payload []byte) error {
 	return c.ws.WriteMessage(mt, payload)
 }
 
-// writePump pumps messages from the hub to the websocket connection.
+// writePump pumps messages from the c.hub to the websocket connection.
 func (c *Conn) writePump() {
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
@@ -133,44 +131,4 @@ func (c *Conn) writePump() {
 			}
 		}
 	}
-}
-
-// serveWs handles websocket requests from the peer.
-func serveWs(w http.ResponseWriter, r *http.Request) {
-	workerID := r.Header.Get(WorkerIDHeaderName)
-	if workerID == "" {
-		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
-		return
-	}
-	ws, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "failed to upgrade to webscoket"},
-			ltsvlog.LV{"err", err})
-		return
-	}
-	conn := &Conn{send: make(chan []byte, 256), ws: ws, workerID: workerID}
-
-	registeredC := make(chan bool)
-	req := registerWorkerRequest{
-		conn:    conn,
-		resultC: registeredC,
-	}
-	hub.registerWorkerC <- req
-	registered := <-registeredC
-	var registerWorkerResult msg.RegisterWorkerResult
-	if !registered {
-		registerWorkerResult.Error = "woker with same name already exists"
-	}
-	message, err := msgpack.Marshal(msg.RegisterWorkerResultMsg, &registerWorkerResult)
-	if err != nil {
-		ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "encode error"},
-			ltsvlog.LV{"registerWorkerResult", registerWorkerResult},
-			ltsvlog.LV{"err", err})
-		close(conn.send)
-		return
-	}
-	conn.send <- message
-
-	go conn.writePump()
-	conn.readPump()
 }
