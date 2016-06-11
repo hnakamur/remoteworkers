@@ -13,5 +13,5 @@
 // to a worker, the server does not wait for the worker. When the server receives
 // results from all active workers, the server sends results to the client.
 //
-// You can see an example at https://github.com/hnakamur/remoteworkers/example
+// You can see an example at https://github.com/hnakamur/remoteworkers/tree/master/example
 package remoteworkers
