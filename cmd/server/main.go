@@ -14,6 +14,7 @@ import (
 	"bitbucket.org/hnakamur/ws_surveyor"
 	"bitbucket.org/hnakamur/ws_surveyor/msg"
 
+	"github.com/gorilla/websocket"
 	"github.com/hnakamur/ltsvlog"
 )
 
@@ -77,14 +78,45 @@ func serveWorkFunc(hub *ws_surveyor.Hub) func(w http.ResponseWriter, r *http.Req
 	}
 }
 
+// ServeWS returns a function for handling websocket request from the peer.
+func serveWSFunc(hub *ws_surveyor.Hub) func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		workerID := r.Header.Get("X-Worker-ID")
+		if workerID == "" {
+			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		}
+		upgrader := websocket.Upgrader{
+			ReadBufferSize:  1024,
+			WriteBufferSize: 1024,
+		}
+		ws, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "failed to upgrade to webscoket"},
+				ltsvlog.LV{"err", err})
+			return
+		}
+		conn := ws_surveyor.NewConn(hub, ws, workerID, 256)
+		err = conn.RegisterToHub()
+		if err != nil {
+			ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "failed to register connection to hub"},
+				ltsvlog.LV{"err", err})
+			return
+		}
+
+		conn.Run()
+	}
+}
+
 var addr = flag.String("addr", ":8080", "http service address")
 
 func main() {
 	flag.Parse()
+
 	hub := ws_surveyor.NewHub()
 	go hub.Run()
 	http.HandleFunc("/work", serveWorkFunc(hub))
-	http.HandleFunc("/ws", hub.ServeWSFunc())
+	http.HandleFunc("/ws", serveWSFunc(hub))
 	ltsvlog.Logger.Info(ltsvlog.LV{"msg", "server start listening"}, ltsvlog.LV{"address", *addr})
 	err := http.ListenAndServe(*addr, nil)
 	if err != nil {

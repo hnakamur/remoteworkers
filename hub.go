@@ -2,7 +2,6 @@ package ws_surveyor
 
 import (
 	"errors"
-	"net/http"
 	"sort"
 	"sync/atomic"
 
@@ -193,46 +192,4 @@ func (h *Hub) RequestWork(params interface{}) (map[string]interface{}, msg.JobID
 
 	res := <-resultC
 	return res.results, res.jobID, res.err
-}
-
-// ServeWS returns a function for handling websocket request from the peer.
-func (h *Hub) ServeWSFunc() func(w http.ResponseWriter, r *http.Request) {
-	return func(w http.ResponseWriter, r *http.Request) {
-		workerID := r.Header.Get(WorkerIDHeaderName)
-		if workerID == "" {
-			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
-			return
-		}
-		ws, err := upgrader.Upgrade(w, r, nil)
-		if err != nil {
-			ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "failed to upgrade to webscoket"},
-				ltsvlog.LV{"err", err})
-			return
-		}
-		conn := &Conn{hub: h, send: make(chan []byte, 256), ws: ws, workerID: workerID}
-
-		registeredC := make(chan bool)
-		req := registerWorkerRequest{
-			conn:    conn,
-			resultC: registeredC,
-		}
-		h.registerWorkerC <- req
-		registered := <-registeredC
-		var registerWorkerResult msg.RegisterWorkerResult
-		if !registered {
-			registerWorkerResult.Error = "woker with same name already exists"
-		}
-		message, err := msgpack.Marshal(msg.RegisterWorkerResultMsg, &registerWorkerResult)
-		if err != nil {
-			ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "encode error"},
-				ltsvlog.LV{"registerWorkerResult", registerWorkerResult},
-				ltsvlog.LV{"err", err})
-			close(conn.send)
-			return
-		}
-		conn.send <- message
-
-		go conn.writePump()
-		conn.readPump()
-	}
 }

@@ -21,15 +21,7 @@ const (
 
 	// Maximum message size allowed from peer.
 	maxMessageSize = 512
-
-	// WorkerID header name
-	WorkerIDHeaderName = "X-Worker-ID"
 )
-
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-}
 
 // Conn is an middleman between the websocket connection and the hub.
 type Conn struct {
@@ -44,6 +36,44 @@ type Conn struct {
 
 	// Worker ID.
 	workerID string
+}
+
+func NewConn(hub *Hub, ws *websocket.Conn, workerID string, sendChannelLength int) *Conn {
+	return &Conn{
+		hub:      hub,
+		ws:       ws,
+		send:     make(chan []byte, sendChannelLength),
+		workerID: workerID,
+	}
+}
+
+func (c *Conn) RegisterToHub() error {
+	registeredC := make(chan bool)
+	req := registerWorkerRequest{
+		conn:    c,
+		resultC: registeredC,
+	}
+	c.hub.registerWorkerC <- req
+	registered := <-registeredC
+	var registerWorkerResult msg.RegisterWorkerResult
+	if !registered {
+		registerWorkerResult.Error = "woker with same name already exists"
+	}
+	message, err := msgpack.Marshal(msg.RegisterWorkerResultMsg, &registerWorkerResult)
+	if err != nil {
+		ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "encode error"},
+			ltsvlog.LV{"registerWorkerResult", registerWorkerResult},
+			ltsvlog.LV{"err", err})
+		close(c.send)
+		return err
+	}
+	c.send <- message
+	return nil
+}
+
+func (c *Conn) Run() {
+	go c.writePump()
+	c.readPump()
 }
 
 // readPump pumps messages from the websocket connection to the hub.

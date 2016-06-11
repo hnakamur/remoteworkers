@@ -16,7 +16,7 @@ type WorkFunc func(params interface{}) interface{}
 
 type Worker struct {
 	serverURL               url.URL
-	workerIDReqHeaderName   string
+	workerIDHeaderName      string
 	workerID                string
 	conn                    *websocket.Conn
 	sendChannelLength       int
@@ -28,10 +28,10 @@ type Worker struct {
 	logger                  ltsvlog.LogWriter
 }
 
-func NewWorker(serverURL url.URL, workerIDReqHeaderName, workerID string, sendChannelLength int, workFunc WorkFunc, delayAfterSendingClose, delayBeforeReconnecting time.Duration, logger ltsvlog.LogWriter) *Worker {
+func NewWorker(serverURL url.URL, workerIDHeaderName, workerID string, sendChannelLength int, workFunc WorkFunc, delayAfterSendingClose, delayBeforeReconnecting time.Duration, logger ltsvlog.LogWriter) *Worker {
 	return &Worker{
 		serverURL:               serverURL,
-		workerIDReqHeaderName:   workerIDReqHeaderName,
+		workerIDHeaderName:      workerIDHeaderName,
 		workerID:                workerID,
 		sendChannelLength:       sendChannelLength,
 		workFunc:                workFunc,
@@ -43,7 +43,7 @@ func NewWorker(serverURL url.URL, workerIDReqHeaderName, workerID string, sendCh
 
 func (w *Worker) Run(ctx context.Context) error {
 	header := map[string][]string{
-		w.workerIDReqHeaderName: []string{w.workerID},
+		w.workerIDHeaderName: []string{w.workerID},
 	}
 	for {
 		w.doneC = make(chan struct{})
