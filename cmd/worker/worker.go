@@ -57,7 +57,7 @@ func main() {
 		}
 		return results
 	}
-	w := worker.NewWorker(u, "X-Worker-ID", *workerID, 256, workFunc, time.Second, time.Second)
+	w := worker.NewWorker(u, "X-Worker-ID", *workerID, 256, workFunc, time.Second, time.Second, ltsvlog.Logger)
 	err := w.Run(ctx)
 	if err != nil {
 		ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "error from Run"},
