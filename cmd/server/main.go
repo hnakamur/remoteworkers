@@ -78,7 +78,7 @@ func serveWorkFunc(hub *ws_surveyor.Hub) func(w http.ResponseWriter, r *http.Req
 	}
 }
 
-// ServeWS returns a function for handling websocket request from the peer.
+// serveWS returns a function for handling websocket request from the peer.
 func serveWSFunc(hub *ws_surveyor.Hub) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		workerID := r.Header.Get("X-Worker-ID")
@@ -96,8 +96,8 @@ func serveWSFunc(hub *ws_surveyor.Hub) func(w http.ResponseWriter, r *http.Reque
 				ltsvlog.LV{"err", err})
 			return
 		}
-		conn := ws_surveyor.NewConn(hub, ws, workerID, 256)
-		err = conn.RegisterToHub()
+		conn := ws_surveyor.NewConn(ws, workerID, ws_surveyor.DefaultConnConfig())
+		err = conn.RegisterToHub(hub)
 		if err != nil {
 			ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "failed to register connection to hub"},
 				ltsvlog.LV{"err", err})

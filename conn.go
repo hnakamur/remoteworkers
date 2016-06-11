@@ -9,19 +9,33 @@ import (
 	"gopkg.in/vmihailenco/msgpack.v2"
 )
 
-const (
-	// Time allowed to write a message to the peer.
-	writeWait = 10 * time.Second
+type ConnConfig struct {
+	// SendChannelLen is length of send channel.
+	SendChannelLen int
 
-	// Time allowed to read the next pong message from the peer.
-	pongWait = 60 * time.Second
+	// WriteWait is time allowed to write a message to the worker.
+	WriteWait time.Duration
 
-	// Send pings to peer with this period. Must be less than pongWait.
-	pingPeriod = (pongWait * 9) / 10
+	// PongWait is time allowed to read the next pong message from the worker.
+	PongWait time.Duration
 
-	// Maximum message size allowed from peer.
-	maxMessageSize = 512
-)
+	// PingPeriod is period which the connection pings to worker with. Must be less than PongWait.
+	PingPeriod time.Duration
+
+	// Maximum message size allowed from worker.
+	MaxMessageSize int64
+}
+
+func DefaultConnConfig() ConnConfig {
+	pongWait := 60 * time.Second
+	return ConnConfig{
+		SendChannelLen: 256,
+		WriteWait:      10 * time.Second,
+		PongWait:       pongWait,
+		PingPeriod:     (pongWait * 9) / 10,
+		MaxMessageSize: 512,
+	}
+}
 
 // Conn is an middleman between the websocket connection and the hub.
 type Conn struct {
@@ -36,24 +50,39 @@ type Conn struct {
 
 	// Worker ID.
 	workerID string
+
+	// writeWait is time allowed to write a message to the worker.
+	writeWait time.Duration
+
+	// pongWait is time allowed to read the next pong message from the worker.
+	pongWait time.Duration
+
+	// pingPeriod is period which the connection pings to worker with. Must be less than PongWait.
+	pingPeriod time.Duration
+
+	// maximum message size allowed from worker.
+	maxMessageSize int64
 }
 
-func NewConn(hub *Hub, ws *websocket.Conn, workerID string, sendChannelLength int) *Conn {
+func NewConn(ws *websocket.Conn, workerID string, config ConnConfig) *Conn {
 	return &Conn{
-		hub:      hub,
-		ws:       ws,
-		send:     make(chan []byte, sendChannelLength),
-		workerID: workerID,
+		ws:             ws,
+		send:           make(chan []byte, config.SendChannelLen),
+		workerID:       workerID,
+		writeWait:      config.WriteWait,
+		pongWait:       config.PongWait,
+		pingPeriod:     config.PingPeriod,
+		maxMessageSize: config.MaxMessageSize,
 	}
 }
 
-func (c *Conn) RegisterToHub() error {
+func (c *Conn) RegisterToHub(h *Hub) error {
 	registeredC := make(chan bool)
 	req := registerWorkerRequest{
 		conn:    c,
 		resultC: registeredC,
 	}
-	c.hub.registerWorkerC <- req
+	h.registerWorkerC <- req
 	registered := <-registeredC
 	var registerWorkerResult msg.RegisterWorkerResult
 	if !registered {
@@ -67,6 +96,7 @@ func (c *Conn) RegisterToHub() error {
 		close(c.send)
 		return err
 	}
+	c.hub = h
 	c.send <- message
 	return nil
 }
@@ -82,9 +112,9 @@ func (c *Conn) readPump() {
 		c.hub.unregisterWorkerC <- c
 		c.ws.Close()
 	}()
-	c.ws.SetReadLimit(maxMessageSize)
-	c.ws.SetReadDeadline(time.Now().Add(pongWait))
-	c.ws.SetPongHandler(func(string) error { c.ws.SetReadDeadline(time.Now().Add(pongWait)); return nil })
+	c.ws.SetReadLimit(c.maxMessageSize)
+	c.ws.SetReadDeadline(time.Now().Add(c.pongWait))
+	c.ws.SetPongHandler(func(string) error { c.ws.SetReadDeadline(time.Now().Add(c.pongWait)); return nil })
 	for {
 		wsMsgType, r, err := c.ws.NextReader()
 		if err != nil {
@@ -134,13 +164,13 @@ func (c *Conn) readPump() {
 
 // write writes a message with the given message type and payload.
 func (c *Conn) write(mt int, payload []byte) error {
-	c.ws.SetWriteDeadline(time.Now().Add(writeWait))
+	c.ws.SetWriteDeadline(time.Now().Add(c.writeWait))
 	return c.ws.WriteMessage(mt, payload)
 }
 
 // writePump pumps messages from the c.hub to the websocket connection.
 func (c *Conn) writePump() {
-	ticker := time.NewTicker(pingPeriod)
+	ticker := time.NewTicker(c.pingPeriod)
 	defer func() {
 		ticker.Stop()
 		c.ws.Close()

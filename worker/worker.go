@@ -81,7 +81,7 @@ func (w *Worker) Run(ctx context.Context) error {
 				}
 			case <-w.doneC:
 				if w.logger.DebugEnabled() {
-					w.logger.Debug(ltsvlog.LV{"msg", "received doneC"})
+					w.logger.Debug(ltsvlog.LV{"msg", "received from doneC"})
 				}
 				goto retry_connect
 
