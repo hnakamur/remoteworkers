@@ -5,9 +5,9 @@ import (
 	"net/url"
 	"time"
 
-	"bitbucket.org/hnakamur/ws_surveyor/msg"
 	"github.com/gorilla/websocket"
 	"github.com/hnakamur/ltsvlog"
+	"github.com/hnakamur/remoteworkers/msg"
 	"golang.org/x/net/context"
 	"gopkg.in/vmihailenco/msgpack.v2"
 )

@@ -1,4 +1,4 @@
-package ws_surveyor
+package remoteworkers
 
 import (
 	"errors"
@@ -8,9 +8,8 @@ import (
 	"golang.org/x/net/context"
 
 	"github.com/hnakamur/ltsvlog"
+	"github.com/hnakamur/remoteworkers/msg"
 	"gopkg.in/vmihailenco/msgpack.v2"
-
-	"bitbucket.org/hnakamur/ws_surveyor/msg"
 )
 
 // hub maintains the set of active connections and broadcasts messages to the

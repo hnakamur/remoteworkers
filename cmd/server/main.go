@@ -10,11 +10,10 @@ import (
 
 	"golang.org/x/net/context"
 
-	"bitbucket.org/hnakamur/ws_surveyor"
-	"bitbucket.org/hnakamur/ws_surveyor/msg"
-
 	"github.com/gorilla/websocket"
 	"github.com/hnakamur/ltsvlog"
+	"github.com/hnakamur/remoteworkers"
+	"github.com/hnakamur/remoteworkers/msg"
 )
 
 type workRequest struct {
@@ -41,7 +40,7 @@ func newWorkResponse(jobID msg.JobID, results map[string]interface{}) *workRespo
 	return workRes
 }
 
-func serveWorkFunc(hub *ws_surveyor.Hub) func(w http.ResponseWriter, r *http.Request) {
+func serveWorkFunc(hub *remoteworkers.Hub) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/work" {
 			http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
@@ -78,7 +77,7 @@ func serveWorkFunc(hub *ws_surveyor.Hub) func(w http.ResponseWriter, r *http.Req
 }
 
 // serveWS returns a function for handling websocket request from the peer.
-func serveWSFunc(hub *ws_surveyor.Hub) func(w http.ResponseWriter, r *http.Request) {
+func serveWSFunc(hub *remoteworkers.Hub) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		workerID := r.Header.Get("X-Worker-ID")
 		if workerID == "" {
@@ -95,7 +94,7 @@ func serveWSFunc(hub *ws_surveyor.Hub) func(w http.ResponseWriter, r *http.Reque
 				ltsvlog.LV{"err", err})
 			return
 		}
-		conn := ws_surveyor.NewConn(ws, workerID, ltsvlog.Logger, ws_surveyor.DefaultConnConfig())
+		conn := remoteworkers.NewConn(ws, workerID, ltsvlog.Logger, remoteworkers.DefaultConnConfig())
 		err = conn.RegisterToHub(hub)
 		if err != nil {
 			ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "failed to register connection to hub"},
@@ -123,7 +122,7 @@ func main() {
 		}
 	}()
 
-	hub := ws_surveyor.NewHub(ltsvlog.Logger)
+	hub := remoteworkers.NewHub(ltsvlog.Logger)
 	go func() {
 		err := hub.Run(ctx)
 		if err != nil {

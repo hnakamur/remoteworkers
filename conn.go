@@ -1,11 +1,11 @@
-package ws_surveyor
+package remoteworkers
 
 import (
 	"time"
 
-	"bitbucket.org/hnakamur/ws_surveyor/msg"
 	"github.com/gorilla/websocket"
 	"github.com/hnakamur/ltsvlog"
+	"github.com/hnakamur/remoteworkers/msg"
 	"gopkg.in/vmihailenco/msgpack.v2"
 )
 

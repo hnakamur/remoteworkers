@@ -9,11 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"bitbucket.org/hnakamur/ws_surveyor/worker"
-
 	"golang.org/x/net/context"
 
 	"github.com/hnakamur/ltsvlog"
+	"github.com/hnakamur/remoteworkers/worker"
 )
 
 var addr = flag.String("addr", "localhost:8080", "http service address")
