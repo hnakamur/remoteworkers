@@ -5,7 +5,10 @@ import (
 	"flag"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
+
+	"golang.org/x/net/context"
 
 	"bitbucket.org/hnakamur/ws_surveyor"
 	"bitbucket.org/hnakamur/ws_surveyor/msg"
@@ -109,8 +112,28 @@ var addr = flag.String("addr", ":8080", "http service address")
 func main() {
 	flag.Parse()
 
+	interrupt := make(chan os.Signal, 1)
+	signal.Notify(interrupt, os.Interrupt)
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		for {
+			<-interrupt
+			ltsvlog.Logger.Info(ltsvlog.LV{"msg", "got interrupt"})
+			cancel()
+		}
+	}()
+
 	hub := ws_surveyor.NewHub(ltsvlog.Logger)
-	go hub.Run()
+	go func() {
+		err := hub.Run(ctx)
+		if err != nil {
+			ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "error from hub.Run"},
+				ltsvlog.LV{"address", *addr},
+				ltsvlog.LV{"err", err})
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}()
 	http.HandleFunc("/work", serveWorkFunc(hub))
 	http.HandleFunc("/ws", serveWSFunc(hub))
 	ltsvlog.Logger.Info(ltsvlog.LV{"msg", "server start listening"}, ltsvlog.LV{"address", *addr})

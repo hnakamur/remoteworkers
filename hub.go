@@ -5,6 +5,8 @@ import (
 	"sort"
 	"sync/atomic"
 
+	"golang.org/x/net/context"
+
 	"github.com/hnakamur/ltsvlog"
 	"gopkg.in/vmihailenco/msgpack.v2"
 
@@ -102,7 +104,7 @@ func (b *workerResultsBuffer) Results() map[string]interface{} {
 }
 
 // Run runs a hub
-func (h *Hub) Run() {
+func (h *Hub) Run(ctx context.Context) error {
 	for {
 		select {
 		case req := <-h.registerWorkerC:
@@ -144,7 +146,7 @@ func (h *Hub) Run() {
 				h.logger.ErrorWithStack(ltsvlog.LV{"msg", "encode error"},
 					ltsvlog.LV{"job", job},
 					ltsvlog.LV{"err", err})
-				return
+				return err
 			}
 			resultsBuf := newWorkerResultsBuffer(req.resultC)
 			for workerID, conn := range h.workers {
@@ -169,6 +171,12 @@ func (h *Hub) Run() {
 				resultsBuf.resultC <- jobResultOrError{jobID: jobID, results: resultsBuf.Results()}
 				delete(h.workerResultsBuffers, jobID)
 			}
+		case <-ctx.Done():
+			for workerID, conn := range h.workers {
+				close(conn.sendC)
+				delete(h.workers, workerID)
+			}
+			return nil
 		}
 	}
 }
