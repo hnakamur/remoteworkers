@@ -12,7 +12,7 @@ import (
 	"gopkg.in/vmihailenco/msgpack.v2"
 )
 
-// hub maintains the set of active connections and broadcasts messages to the
+// Hub maintains the set of active connections and broadcasts messages to the
 // connections.
 type Hub struct {
 	logger ltsvlog.LogWriter
@@ -189,6 +189,8 @@ func (h *Hub) workerIDs() []string {
 	return workerIDs
 }
 
+// RequestWork sends a job to all remote workers and receives results from all workers.
+// It returns the results and the job ID which will be issued by the hub.
 func (h *Hub) RequestWork(params interface{}) (map[string]interface{}, uint64, error) {
 	job := msg.Job{
 		Params: params,

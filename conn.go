@@ -9,6 +9,7 @@ import (
 	"gopkg.in/vmihailenco/msgpack.v2"
 )
 
+// ConnConfig is a configuration for Conn.
 type ConnConfig struct {
 	// SendChannelLen is length of send channel.
 	SendChannelLen int
@@ -26,6 +27,7 @@ type ConnConfig struct {
 	MaxMessageSize int64
 }
 
+// DefaultConnConfig returns the default config for Conn.
 func DefaultConnConfig() ConnConfig {
 	pongWait := 60 * time.Second
 	return ConnConfig{
@@ -66,6 +68,7 @@ type Conn struct {
 	maxMessageSize int64
 }
 
+// NewConn creates a new connection.
 func NewConn(ws *websocket.Conn, workerID string, logger ltsvlog.LogWriter, config ConnConfig) *Conn {
 	return &Conn{
 		logger:         logger,
@@ -79,6 +82,7 @@ func NewConn(ws *websocket.Conn, workerID string, logger ltsvlog.LogWriter, conf
 	}
 }
 
+// RegisterToHub registers this connection to a hub.
 func (c *Conn) RegisterToHub(h *Hub) error {
 	registeredC := make(chan bool)
 	req := registerWorkerRequest{
@@ -104,6 +108,7 @@ func (c *Conn) RegisterToHub(h *Hub) error {
 	return nil
 }
 
+// Run runs a connection.
 func (c *Conn) Run() {
 	go c.writePump()
 	c.readPump()
