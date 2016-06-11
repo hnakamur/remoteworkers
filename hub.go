@@ -8,7 +8,6 @@ import (
 	"golang.org/x/net/context"
 
 	"github.com/hnakamur/ltsvlog"
-	"github.com/hnakamur/remoteworkers/msg"
 	"gopkg.in/vmihailenco/msgpack.v2"
 )
 
@@ -58,7 +57,7 @@ type registerWorkerRequest struct {
 }
 
 type jobRequestToHub struct {
-	job     msg.Job
+	job     jobMessage
 	resultC chan jobResultOrError
 }
 
@@ -70,18 +69,18 @@ type jobResultOrError struct {
 
 type workerResult struct {
 	workerID string
-	result   *msg.WorkerResult
+	result   *workerResultMessage
 }
 
 type workerResultsBuffer struct {
 	resultC chan jobResultOrError
-	results map[string]*msg.WorkerResult
+	results map[string]*workerResultMessage
 }
 
 func newWorkerResultsBuffer(resultC chan jobResultOrError) *workerResultsBuffer {
 	return &workerResultsBuffer{
 		resultC: resultC,
-		results: make(map[string]*msg.WorkerResult),
+		results: make(map[string]*workerResultMessage),
 	}
 }
 
@@ -140,7 +139,7 @@ func (h *Hub) Run(ctx context.Context) error {
 		case req := <-h.broadcastToWorkersC:
 			job := req.job
 			job.ID = atomic.AddUint64(&h.jobID, 1)
-			message, err := msgpack.Marshal(msg.JobMsg, &job)
+			message, err := msgpack.Marshal(jobMsg, &job)
 			if err != nil {
 				h.logger.ErrorWithStack(ltsvlog.LV{"msg", "encode error"},
 					ltsvlog.LV{"job", job},
@@ -192,7 +191,7 @@ func (h *Hub) workerIDs() []string {
 // RequestWork sends a job to all remote workers and receives results from all workers.
 // It returns the results and the job ID which will be issued by the hub.
 func (h *Hub) RequestWork(params interface{}) (map[string]interface{}, uint64, error) {
-	job := msg.Job{
+	job := jobMessage{
 		Params: params,
 	}
 	resultC := make(chan jobResultOrError)

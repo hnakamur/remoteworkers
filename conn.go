@@ -5,7 +5,6 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/hnakamur/ltsvlog"
-	"github.com/hnakamur/remoteworkers/msg"
 	"gopkg.in/vmihailenco/msgpack.v2"
 )
 
@@ -91,11 +90,11 @@ func (c *Conn) RegisterToHub(h *Hub) error {
 	}
 	h.registerWorkerC <- req
 	registered := <-registeredC
-	var registerWorkerResult msg.RegisterWorkerResult
+	var registerWorkerResult registerWorkerResultMessage
 	if !registered {
 		registerWorkerResult.Error = "woker with same name already exists"
 	}
-	message, err := msgpack.Marshal(msg.RegisterWorkerResultMsg, &registerWorkerResult)
+	message, err := msgpack.Marshal(registerWorkerResultMsg, &registerWorkerResult)
 	if err != nil {
 		c.logger.ErrorWithStack(ltsvlog.LV{"msg", "encode error"},
 			ltsvlog.LV{"registerWorkerResult", registerWorkerResult},
@@ -137,7 +136,7 @@ func (c *Conn) readPump() {
 		}
 
 		dec := msgpack.NewDecoder(r)
-		var msgType msg.MessageType
+		var msgType messageType
 		err = dec.Decode(&msgType)
 		if err != nil {
 			c.logger.ErrorWithStack(ltsvlog.LV{"msg", "decode error"},
@@ -145,8 +144,8 @@ func (c *Conn) readPump() {
 			return
 		}
 		switch msgType {
-		case msg.WorkerResultMsg:
-			var res msg.WorkerResult
+		case workerResultMsg:
+			var res workerResultMessage
 			err := dec.Decode(&res)
 			if err != nil {
 				c.logger.ErrorWithStack(ltsvlog.LV{"msg", "decode error"},
