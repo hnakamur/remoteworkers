@@ -101,7 +101,7 @@ func (b *workerResultsBuffer) Results() map[string]interface{} {
 	return results
 }
 
-// Run runs a hub
+// Run runs a hub.
 func (h *Hub) Run(ctx context.Context) error {
 	for {
 		select {
