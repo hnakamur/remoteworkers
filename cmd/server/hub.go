@@ -60,13 +60,10 @@ type jobRequestToHub struct {
 	resultC chan jobResultOrError
 }
 
-type jobResult struct {
-	results map[string]*msg.WorkerResult
-}
-
 type jobResultOrError struct {
-	result jobResult
-	err    error
+	jobID   msg.JobID
+	results map[string]interface{}
+	err     error
 }
 
 type workerResult struct {
@@ -93,6 +90,14 @@ func (b *workerResultsBuffer) gotAllResults() bool {
 		}
 	}
 	return true
+}
+
+func (b *workerResultsBuffer) Results() map[string]interface{} {
+	results := make(map[string]interface{})
+	for workerID, r := range b.results {
+		results[workerID] = r.Data
+	}
+	return results
 }
 
 func (h *Hub) run() {
@@ -125,7 +130,7 @@ func (h *Hub) run() {
 				ltsvlog.LV{"worker_ids", h.WorkerIDs()})
 			for jobID, resultsBuf := range h.workerResultsBuffers {
 				if resultsBuf.gotAllResults() {
-					resultsBuf.resultC <- jobResultOrError{result: jobResult{results: resultsBuf.results}}
+					resultsBuf.resultC <- jobResultOrError{jobID: jobID, results: resultsBuf.Results()}
 					delete(h.workerResultsBuffers, jobID)
 				}
 			}
@@ -152,14 +157,14 @@ func (h *Hub) run() {
 			if len(resultsBuf.results) > 0 {
 				h.workerResultsBuffers[job.ID] = resultsBuf
 			} else {
-				req.resultC <- jobResultOrError{err: errors.New("no worker")}
+				req.resultC <- jobResultOrError{jobID: job.ID, err: errors.New("no worker")}
 			}
 		case res := <-h.workerResultToHubC:
 			jobID := res.result.JobID
 			resultsBuf := h.workerResultsBuffers[jobID]
 			resultsBuf.results[res.workerID] = res.result
 			if resultsBuf.gotAllResults() {
-				resultsBuf.resultC <- jobResultOrError{result: jobResult{results: resultsBuf.results}}
+				resultsBuf.resultC <- jobResultOrError{jobID: jobID, results: resultsBuf.Results()}
 				delete(h.workerResultsBuffers, jobID)
 			}
 		}
@@ -173,4 +178,18 @@ func (h *Hub) WorkerIDs() []string {
 	}
 	sort.Sort(sort.StringSlice(workerIDs))
 	return workerIDs
+}
+
+func (h *Hub) RequestWork(params interface{}) (map[string]interface{}, msg.JobID, error) {
+	job := msg.Job{
+		Params: params,
+	}
+	resultC := make(chan jobResultOrError)
+	h.broadcastToWorkersC <- jobRequestToHub{
+		job:     job,
+		resultC: resultC,
+	}
+
+	res := <-resultC
+	return res.results, res.jobID, res.err
 }

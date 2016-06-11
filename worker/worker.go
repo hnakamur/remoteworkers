@@ -100,8 +100,8 @@ func (w *Worker) Run(ctx context.Context) error {
 				case <-time.After(w.delayAfterSendingClose):
 				}
 				return ctx.Err()
-			case err := <-errC:
-				return err
+			case <-errC:
+				goto retry_connect
 			}
 		}
 
@@ -114,8 +114,8 @@ func (w *Worker) Run(ctx context.Context) error {
 			if w.logger.DebugEnabled() {
 				w.logger.Debug(ltsvlog.LV{"msg", "retrying connect to server"})
 			}
-		case err := <-errC:
-			return err
+		case <-errC:
+			goto retry_connect
 		}
 	}
 	return nil

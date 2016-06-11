@@ -19,16 +19,16 @@ type workResponse struct {
 	Results map[string]interface{} `json:"results"`
 }
 
-func newWorkResponse(res jobResult) *workResponse {
+func newWorkResponse(jobID msg.JobID, results map[string]interface{}) *workResponse {
 	workRes := &workResponse{
 		Results: make(map[string]interface{}),
 	}
-	for workerID, r := range res.results {
+	for workerID, r := range results {
 		data := make(map[string]bool)
 		if workRes.JobID == "" {
-			workRes.JobID = strconv.FormatUint(uint64(r.JobID), 10)
+			workRes.JobID = strconv.FormatUint(uint64(jobID), 10)
 		}
-		for k, v := range r.Data.(map[interface{}]interface{}) {
+		for k, v := range r.(map[interface{}]interface{}) {
 			data[k.(string)] = v.(bool)
 		}
 		workRes.Results[workerID] = data
@@ -53,24 +53,15 @@ func serveWork(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	job := msg.Job{
-		Params: v.Params,
-	}
-	resultC := make(chan jobResultOrError)
-	hub.broadcastToWorkersC <- jobRequestToHub{
-		job:     job,
-		resultC: resultC,
-	}
-
-	resOrErr := <-resultC
-	if resOrErr.err != nil {
+	results, jobID, err := hub.RequestWork(v.Params)
+	if err != nil {
 		ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "error returned from worker hub"},
-			ltsvlog.LV{"err", resOrErr.err})
+			ltsvlog.LV{"err", err})
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 
-	workResp := newWorkResponse(resOrErr.result)
+	workResp := newWorkResponse(jobID, results)
 	enc := json.NewEncoder(w)
 	err = enc.Encode(&workResp)
 	if err != nil {
