@@ -3,7 +3,7 @@ package msg
 import "gopkg.in/vmihailenco/msgpack.v2"
 
 type WorkerResult struct {
-	JobID JobID
+	JobID uint64
 	Data  interface{}
 }
 

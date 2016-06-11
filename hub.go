@@ -30,7 +30,7 @@ type Hub struct {
 	broadcastToWorkersC chan jobRequestToHub
 
 	// worker results buffers
-	workerResultsBuffers map[msg.JobID]*workerResultsBuffer
+	workerResultsBuffers map[uint64]*workerResultsBuffer
 
 	// channel for worker result
 	workerResultToHubC chan workerResult
@@ -47,7 +47,7 @@ func NewHub(logger ltsvlog.LogWriter) *Hub {
 		unregisterWorkerC:    make(chan *Conn),
 		workers:              make(map[string]*Conn),
 		broadcastToWorkersC:  make(chan jobRequestToHub),
-		workerResultsBuffers: make(map[msg.JobID]*workerResultsBuffer),
+		workerResultsBuffers: make(map[uint64]*workerResultsBuffer),
 		workerResultToHubC:   make(chan workerResult),
 	}
 }
@@ -63,7 +63,7 @@ type jobRequestToHub struct {
 }
 
 type jobResultOrError struct {
-	jobID   msg.JobID
+	jobID   uint64
 	results map[string]interface{}
 	err     error
 }
@@ -139,7 +139,7 @@ func (h *Hub) Run(ctx context.Context) error {
 			}
 		case req := <-h.broadcastToWorkersC:
 			job := req.job
-			job.ID = msg.JobID(atomic.AddUint64(&h.jobID, 1))
+			job.ID = atomic.AddUint64(&h.jobID, 1)
 			message, err := msgpack.Marshal(msg.JobMsg, &job)
 			if err != nil {
 				h.logger.ErrorWithStack(ltsvlog.LV{"msg", "encode error"},
@@ -189,7 +189,7 @@ func (h *Hub) workerIDs() []string {
 	return workerIDs
 }
 
-func (h *Hub) RequestWork(params interface{}) (map[string]interface{}, msg.JobID, error) {
+func (h *Hub) RequestWork(params interface{}) (map[string]interface{}, uint64, error) {
 	job := msg.Job{
 		Params: params,
 	}

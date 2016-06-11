@@ -2,10 +2,8 @@ package msg
 
 import "gopkg.in/vmihailenco/msgpack.v2"
 
-type JobID uint64
-
 type Job struct {
-	ID     JobID       `json:"-"`
+	ID     uint64      `json:"-"`
 	Params interface{} `json:"params,omitempty"`
 }
 

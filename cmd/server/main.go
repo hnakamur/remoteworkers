@@ -13,7 +13,6 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/hnakamur/ltsvlog"
 	"github.com/hnakamur/remoteworkers"
-	"github.com/hnakamur/remoteworkers/msg"
 )
 
 type workRequest struct {
@@ -25,7 +24,7 @@ type workResponse struct {
 	Results map[string]interface{} `json:"results"`
 }
 
-func newWorkResponse(jobID msg.JobID, results map[string]interface{}) *workResponse {
+func newWorkResponse(jobID uint64, results map[string]interface{}) *workResponse {
 	workRes := &workResponse{
 		JobID:   strconv.FormatUint(uint64(jobID), 10),
 		Results: make(map[string]interface{}),
