@@ -137,7 +137,6 @@ func (c *Conn) writePump() {
 
 // serveWs handles websocket requests from the peer.
 func serveWs(w http.ResponseWriter, r *http.Request) {
-	ltsvlog.Logger.Info(ltsvlog.LV{"msg", "serveWs"}, ltsvlog.LV{"header", r.Header})
 	workerID := r.Header.Get(WorkerIDHeaderName)
 	if workerID == "" {
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)

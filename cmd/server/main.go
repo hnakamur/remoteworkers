@@ -6,7 +6,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"net/http"
 	"os"
 
@@ -20,7 +19,7 @@ func main() {
 	go hub.run()
 	http.HandleFunc("/work", serveWork)
 	http.HandleFunc("/ws", serveWs)
-	fmt.Printf("server start listening %s...\n", *addr)
+	ltsvlog.Logger.Info(ltsvlog.LV{"msg", "server start listening"}, ltsvlog.LV{"address", *addr})
 	err := http.ListenAndServe(*addr, nil)
 	if err != nil {
 		ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "failed to listen"},
