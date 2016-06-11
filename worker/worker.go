@@ -1,0 +1,196 @@
+package worker
+
+import (
+	"errors"
+	"net/url"
+	"time"
+
+	"bitbucket.org/hnakamur/ws_surveyor/msg"
+	"github.com/gorilla/websocket"
+	"github.com/hnakamur/ltsvlog"
+	"golang.org/x/net/context"
+	"gopkg.in/vmihailenco/msgpack.v2"
+)
+
+type WorkFunc func(params interface{}) interface{}
+
+type Worker struct {
+	serverURL               url.URL
+	workerIDReqHeaderName   string
+	workerID                string
+	conn                    *websocket.Conn
+	sendChannelLength       int
+	sendC                   chan []byte
+	doneC                   chan struct{}
+	workFunc                WorkFunc
+	delayAfterSendingClose  time.Duration
+	delayBeforeReconnecting time.Duration
+}
+
+func NewWorker(serverURL url.URL, workerIDReqHeaderName, workerID string, sendChannelLength int, workFunc WorkFunc, delayAfterSendingClose, delayBeforeReconnecting time.Duration) *Worker {
+	return &Worker{
+		serverURL:               serverURL,
+		workerIDReqHeaderName:   workerIDReqHeaderName,
+		workerID:                workerID,
+		sendChannelLength:       sendChannelLength,
+		workFunc:                workFunc,
+		delayAfterSendingClose:  delayAfterSendingClose,
+		delayBeforeReconnecting: delayBeforeReconnecting,
+	}
+}
+
+func (w *Worker) Run(ctx context.Context) error {
+	header := map[string][]string{
+		w.workerIDReqHeaderName: []string{w.workerID},
+	}
+	for {
+		w.doneC = make(chan struct{})
+		w.sendC = make(chan []byte, w.sendChannelLength)
+		errC := make(chan error)
+
+		ltsvlog.Logger.Info(ltsvlog.LV{"msg", "connecting to server"}, ltsvlog.LV{"address", w.serverURL.String()})
+		c, _, err := websocket.DefaultDialer.Dial(w.serverURL.String(), header)
+		if err != nil {
+			ltsvlog.Logger.Error(ltsvlog.LV{"msg", "dial error"},
+				ltsvlog.LV{"address", w.serverURL.String()},
+				ltsvlog.LV{"err", err},
+			)
+			goto retry_connect
+		}
+		defer c.Close()
+		ltsvlog.Logger.Info(ltsvlog.LV{"msg", "connected to server"}, ltsvlog.LV{"address", w.serverURL.String()})
+		w.conn = c
+
+		go func() {
+			err := w.readPump()
+			if err != nil {
+				errC <- err
+			}
+		}()
+
+		for {
+			select {
+			case b := <-w.sendC:
+				err = c.WriteMessage(websocket.BinaryMessage, b)
+				if err != nil {
+					ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "write error"},
+						ltsvlog.LV{"err", err})
+					goto retry_connect
+				}
+			case <-w.doneC:
+				if ltsvlog.Logger.DebugEnabled() {
+					ltsvlog.Logger.Debug(ltsvlog.LV{"msg", "received doneC"})
+				}
+				goto retry_connect
+
+			case <-ctx.Done():
+				ltsvlog.Logger.Info(ltsvlog.LV{"msg", "interrupt"})
+				// To cleanly close a connection, a worker should sendC a close
+				// frame and wait for the server to close the connection.
+				err := c.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+				if err != nil {
+					ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "write close error"},
+						ltsvlog.LV{"err", err})
+					return err
+				}
+				select {
+				case <-w.doneC:
+				case <-time.After(w.delayAfterSendingClose):
+				}
+				return ctx.Err()
+			case err := <-errC:
+				return err
+			}
+		}
+
+	retry_connect:
+		select {
+		case <-ctx.Done():
+			ltsvlog.Logger.Info(ltsvlog.LV{"msg", "interrupt in retry_eonnect"})
+			return ctx.Err()
+		case <-time.After(w.delayBeforeReconnecting):
+			if ltsvlog.Logger.DebugEnabled() {
+				ltsvlog.Logger.Debug(ltsvlog.LV{"msg", "retrying connect to server"})
+			}
+		case err := <-errC:
+			return err
+		}
+	}
+	return nil
+}
+
+func (w *Worker) readPump() error {
+	defer close(w.doneC)
+	for {
+		wsMsgType, r, err := w.conn.NextReader()
+		if err != nil {
+			ltsvlog.Logger.Error(ltsvlog.LV{"msg", "read error"},
+				ltsvlog.LV{"err", err})
+			return nil
+		}
+		if wsMsgType != websocket.BinaryMessage {
+			ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "unexpected wsMsgType"},
+				ltsvlog.LV{"wsMsgType", wsMsgType})
+			return nil
+		}
+		dec := msgpack.NewDecoder(r)
+		var msgType msg.MessageType
+		err = dec.Decode(&msgType)
+		if err != nil {
+			ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "decode error"},
+				ltsvlog.LV{"err", err})
+			return nil
+		}
+		switch msgType {
+		case msg.RegisterWorkerResultMsg:
+			var registerWorkerResult msg.RegisterWorkerResult
+			err := dec.Decode(&registerWorkerResult)
+			if err != nil {
+				ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "decode error"},
+					ltsvlog.LV{"err", err})
+				return nil
+			}
+			if registerWorkerResult.Error != "" {
+				ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "failed to register worker"},
+					ltsvlog.LV{"workerID", w.workerID},
+					ltsvlog.LV{"err", registerWorkerResult.Error})
+				return errors.New(registerWorkerResult.Error)
+			}
+			ltsvlog.Logger.Info(ltsvlog.LV{"msg", "registered myself as worker"},
+				ltsvlog.LV{"workerID", w.workerID})
+		case msg.JobMsg:
+			var job msg.Job
+			err := dec.Decode(&job)
+			if err != nil {
+				ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "decode error"},
+					ltsvlog.LV{"err", err})
+				return nil
+			}
+
+			if ltsvlog.Logger.DebugEnabled() {
+				ltsvlog.Logger.Debug(ltsvlog.LV{"msg", "received Job"},
+					ltsvlog.LV{"workerID", w.workerID},
+					ltsvlog.LV{"job", job})
+			}
+			go func() {
+				data := w.workFunc(job.Params)
+				jobResult := msg.WorkerResult{
+					JobID: job.ID,
+					Data:  data,
+				}
+				b, err := msgpack.Marshal(msg.WorkerResultMsg, &jobResult)
+				if err != nil {
+					ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "encode error"},
+						ltsvlog.LV{"jobResult", jobResult},
+						ltsvlog.LV{"err", err})
+					return
+				}
+				w.sendC <- b
+			}()
+		default:
+			ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "unexpected MessageType"},
+				ltsvlog.LV{"messageType", msgType})
+			return nil
+		}
+	}
+}
