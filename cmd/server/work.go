@@ -12,8 +12,8 @@ import (
 )
 
 type workRequest struct {
-	Type   string            `json:"type"`
-	Params map[string]string `json:"params,omitempty"`
+	Type   string      `json:"type"`
+	Params interface{} `json:"params,omitempty"`
 }
 
 type workResponse struct {

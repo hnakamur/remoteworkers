@@ -119,7 +119,8 @@ func main() {
 						time.Sleep(randomDelay())
 
 						// NOTE: Do some work.
-						targets := strings.Split(job.Params["targets"], ",")
+						params := job.Params.(map[interface{}]interface{})
+						targets := strings.Split(params["targets"].(string), ",")
 						results := make(map[string]bool)
 						jobResult := msg.WorkerResult{
 							JobID: job.ID,

@@ -5,9 +5,9 @@ import "gopkg.in/vmihailenco/msgpack.v2"
 type JobID uint64
 
 type Job struct {
-	ID     JobID             `json:"-"`
-	Type   string            `json:"type"`
-	Params map[string]string `json:"params,omitempty"`
+	ID     JobID       `json:"-"`
+	Type   string      `json:"type"`
+	Params interface{} `json:"params,omitempty"`
 }
 
 var (
