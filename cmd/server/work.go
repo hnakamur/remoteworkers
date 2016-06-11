@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"log"
 	"net/http"
 	"strconv"
 
@@ -77,6 +76,7 @@ func serveWork(w http.ResponseWriter, r *http.Request) {
 	enc := json.NewEncoder(w)
 	err = enc.Encode(&workResp)
 	if err != nil {
-		log.Println(err)
+		ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "failed to encode work response"},
+			ltsvlog.LV{"err", err})
 	}
 }

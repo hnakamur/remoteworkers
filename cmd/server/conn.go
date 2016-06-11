@@ -5,7 +5,6 @@
 package main
 
 import (
-	"log"
 	"net/http"
 	"time"
 
@@ -146,7 +145,8 @@ func serveWs(w http.ResponseWriter, r *http.Request) {
 	}
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Println(err)
+		ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "failed to upgrade to webscoket"},
+			ltsvlog.LV{"err", err})
 		return
 	}
 	conn := &Conn{send: make(chan []byte, 256), ws: ws, workerID: workerID}

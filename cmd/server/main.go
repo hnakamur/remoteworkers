@@ -7,9 +7,11 @@ package main
 import (
 	"flag"
 	"fmt"
-	"log"
 	"net/http"
+	"os"
 	"text/template"
+
+	"github.com/hnakamur/ltsvlog"
 )
 
 var addr = flag.String("addr", ":8080", "http service address")
@@ -37,6 +39,9 @@ func main() {
 	fmt.Printf("server start listening %s...\n", *addr)
 	err := http.ListenAndServe(*addr, nil)
 	if err != nil {
-		log.Fatal("ListenAndServe: ", err)
+		ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "failed to listen"},
+			ltsvlog.LV{"address", *addr},
+			ltsvlog.LV{"err", err})
+		os.Exit(1)
 	}
 }
