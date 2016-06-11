@@ -113,7 +113,7 @@ func (h *Hub) run() {
 			h.workers[workerID] = req.conn
 			ltsvlog.Logger.Info(ltsvlog.LV{"msg", "registered worker"},
 				ltsvlog.LV{"worker_id", workerID},
-				ltsvlog.LV{"worker_ids", h.WorkerIDs()})
+				ltsvlog.LV{"worker_ids", h.workerIDs()})
 			req.resultC <- true
 		case conn := <-h.unregisterWorkerC:
 			workerID := conn.workerID
@@ -127,7 +127,7 @@ func (h *Hub) run() {
 			}
 			ltsvlog.Logger.Info(ltsvlog.LV{"msg", "unregistered worker"},
 				ltsvlog.LV{"worker_id", workerID},
-				ltsvlog.LV{"worker_ids", h.WorkerIDs()})
+				ltsvlog.LV{"worker_ids", h.workerIDs()})
 			for jobID, resultsBuf := range h.workerResultsBuffers {
 				if resultsBuf.gotAllResults() {
 					resultsBuf.resultC <- jobResultOrError{jobID: jobID, results: resultsBuf.Results()}
@@ -171,7 +171,7 @@ func (h *Hub) run() {
 	}
 }
 
-func (h *Hub) WorkerIDs() []string {
+func (h *Hub) workerIDs() []string {
 	workerIDs := make([]string, 0, len(h.workers))
 	for workerID := range h.workers {
 		workerIDs = append(workerIDs, workerID)
