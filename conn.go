@@ -46,7 +46,7 @@ type Conn struct {
 	ws *websocket.Conn
 
 	// Buffered channel of outbound messages.
-	send chan []byte
+	sendC chan []byte
 
 	// Worker ID.
 	workerID string
@@ -67,7 +67,7 @@ type Conn struct {
 func NewConn(ws *websocket.Conn, workerID string, config ConnConfig) *Conn {
 	return &Conn{
 		ws:             ws,
-		send:           make(chan []byte, config.SendChannelLen),
+		sendC:          make(chan []byte, config.SendChannelLen),
 		workerID:       workerID,
 		writeWait:      config.WriteWait,
 		pongWait:       config.PongWait,
@@ -93,11 +93,11 @@ func (c *Conn) RegisterToHub(h *Hub) error {
 		ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "encode error"},
 			ltsvlog.LV{"registerWorkerResult", registerWorkerResult},
 			ltsvlog.LV{"err", err})
-		close(c.send)
+		close(c.sendC)
 		return err
 	}
 	c.hub = h
-	c.send <- message
+	c.sendC <- message
 	return nil
 }
 
@@ -177,7 +177,7 @@ func (c *Conn) writePump() {
 	}()
 	for {
 		select {
-		case message, ok := <-c.send:
+		case message, ok := <-c.sendC:
 			if !ok {
 				c.write(websocket.CloseMessage, []byte{})
 				return

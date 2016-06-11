@@ -121,7 +121,7 @@ func (h *Hub) Run() {
 				continue
 			}
 			delete(h.workers, workerID)
-			close(conn.send)
+			close(conn.sendC)
 			for _, b := range h.workerResultsBuffers {
 				delete(b.results, workerID)
 			}
@@ -147,10 +147,10 @@ func (h *Hub) Run() {
 			resultsBuf := newWorkerResultsBuffer(req.resultC)
 			for workerID, conn := range h.workers {
 				select {
-				case conn.send <- message:
+				case conn.sendC <- message:
 					resultsBuf.results[workerID] = nil
 				default:
-					close(conn.send)
+					close(conn.sendC)
 					delete(h.workers, workerID)
 				}
 			}
