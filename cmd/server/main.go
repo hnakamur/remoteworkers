@@ -92,7 +92,7 @@ func serveWSFunc(hub *ws_surveyor.Hub) func(w http.ResponseWriter, r *http.Reque
 				ltsvlog.LV{"err", err})
 			return
 		}
-		conn := ws_surveyor.NewConn(ws, workerID, ws_surveyor.DefaultConnConfig())
+		conn := ws_surveyor.NewConn(ws, workerID, ltsvlog.Logger, ws_surveyor.DefaultConnConfig())
 		err = conn.RegisterToHub(hub)
 		if err != nil {
 			ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "failed to register connection to hub"},
@@ -109,7 +109,7 @@ var addr = flag.String("addr", ":8080", "http service address")
 func main() {
 	flag.Parse()
 
-	hub := ws_surveyor.NewHub()
+	hub := ws_surveyor.NewHub(ltsvlog.Logger)
 	go hub.Run()
 	http.HandleFunc("/work", serveWorkFunc(hub))
 	http.HandleFunc("/ws", serveWSFunc(hub))

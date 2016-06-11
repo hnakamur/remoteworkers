@@ -39,6 +39,8 @@ func DefaultConnConfig() ConnConfig {
 
 // Conn is an middleman between the websocket connection and the hub.
 type Conn struct {
+	logger ltsvlog.LogWriter
+
 	// The hub.
 	hub *Hub
 
@@ -64,8 +66,9 @@ type Conn struct {
 	maxMessageSize int64
 }
 
-func NewConn(ws *websocket.Conn, workerID string, config ConnConfig) *Conn {
+func NewConn(ws *websocket.Conn, workerID string, logger ltsvlog.LogWriter, config ConnConfig) *Conn {
 	return &Conn{
+		logger:         logger,
 		ws:             ws,
 		sendC:          make(chan []byte, config.SendChannelLen),
 		workerID:       workerID,
@@ -90,7 +93,7 @@ func (c *Conn) RegisterToHub(h *Hub) error {
 	}
 	message, err := msgpack.Marshal(msg.RegisterWorkerResultMsg, &registerWorkerResult)
 	if err != nil {
-		ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "encode error"},
+		c.logger.ErrorWithStack(ltsvlog.LV{"msg", "encode error"},
 			ltsvlog.LV{"registerWorkerResult", registerWorkerResult},
 			ltsvlog.LV{"err", err})
 		close(c.sendC)
@@ -118,12 +121,12 @@ func (c *Conn) readPump() {
 	for {
 		wsMsgType, r, err := c.ws.NextReader()
 		if err != nil {
-			ltsvlog.Logger.Error(ltsvlog.LV{"msg", "read error"},
+			c.logger.Error(ltsvlog.LV{"msg", "read error"},
 				ltsvlog.LV{"err", err})
 			return
 		}
 		if wsMsgType != websocket.BinaryMessage {
-			ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "unexpected wsMsgType"},
+			c.logger.ErrorWithStack(ltsvlog.LV{"msg", "unexpected wsMsgType"},
 				ltsvlog.LV{"wsMsgType", wsMsgType})
 			return
 		}
@@ -132,7 +135,7 @@ func (c *Conn) readPump() {
 		var msgType msg.MessageType
 		err = dec.Decode(&msgType)
 		if err != nil {
-			ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "decode error"},
+			c.logger.ErrorWithStack(ltsvlog.LV{"msg", "decode error"},
 				ltsvlog.LV{"err", err})
 			return
 		}
@@ -141,12 +144,12 @@ func (c *Conn) readPump() {
 			var res msg.WorkerResult
 			err := dec.Decode(&res)
 			if err != nil {
-				ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "decode error"},
+				c.logger.ErrorWithStack(ltsvlog.LV{"msg", "decode error"},
 					ltsvlog.LV{"err", err})
 				return
 			}
 
-			ltsvlog.Logger.Info(ltsvlog.LV{"msg", "received WorkerResult"},
+			c.logger.Info(ltsvlog.LV{"msg", "received WorkerResult"},
 				ltsvlog.LV{"workerID", c.workerID},
 				ltsvlog.LV{"workerResult", res})
 
@@ -155,7 +158,7 @@ func (c *Conn) readPump() {
 				result:   &res,
 			}
 		default:
-			ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "unexpected MessageType"},
+			c.logger.ErrorWithStack(ltsvlog.LV{"msg", "unexpected MessageType"},
 				ltsvlog.LV{"messageType", msgType})
 			return
 		}

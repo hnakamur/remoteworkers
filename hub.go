@@ -14,6 +14,8 @@ import (
 // hub maintains the set of active connections and broadcasts messages to the
 // connections.
 type Hub struct {
+	logger ltsvlog.LogWriter
+
 	// Registered workers.
 	workers map[string]*Conn
 
@@ -37,12 +39,12 @@ type Hub struct {
 }
 
 // NewHub creates a hub
-func NewHub() *Hub {
+func NewHub(logger ltsvlog.LogWriter) *Hub {
 	return &Hub{
-		registerWorkerC:   make(chan registerWorkerRequest),
-		unregisterWorkerC: make(chan *Conn),
-		workers:           make(map[string]*Conn),
-
+		logger:               logger,
+		registerWorkerC:      make(chan registerWorkerRequest),
+		unregisterWorkerC:    make(chan *Conn),
+		workers:              make(map[string]*Conn),
 		broadcastToWorkersC:  make(chan jobRequestToHub),
 		workerResultsBuffers: make(map[msg.JobID]*workerResultsBuffer),
 		workerResultToHubC:   make(chan workerResult),
@@ -111,7 +113,7 @@ func (h *Hub) Run() {
 				continue
 			}
 			h.workers[workerID] = req.conn
-			ltsvlog.Logger.Info(ltsvlog.LV{"msg", "registered worker"},
+			h.logger.Info(ltsvlog.LV{"msg", "registered worker"},
 				ltsvlog.LV{"worker_id", workerID},
 				ltsvlog.LV{"worker_ids", h.workerIDs()})
 			req.resultC <- true
@@ -125,7 +127,7 @@ func (h *Hub) Run() {
 			for _, b := range h.workerResultsBuffers {
 				delete(b.results, workerID)
 			}
-			ltsvlog.Logger.Info(ltsvlog.LV{"msg", "unregistered worker"},
+			h.logger.Info(ltsvlog.LV{"msg", "unregistered worker"},
 				ltsvlog.LV{"worker_id", workerID},
 				ltsvlog.LV{"worker_ids", h.workerIDs()})
 			for jobID, resultsBuf := range h.workerResultsBuffers {
@@ -139,7 +141,7 @@ func (h *Hub) Run() {
 			job.ID = msg.JobID(atomic.AddUint64(&h.jobID, 1))
 			message, err := msgpack.Marshal(msg.JobMsg, &job)
 			if err != nil {
-				ltsvlog.Logger.ErrorWithStack(ltsvlog.LV{"msg", "encode error"},
+				h.logger.ErrorWithStack(ltsvlog.LV{"msg", "encode error"},
 					ltsvlog.LV{"job", job},
 					ltsvlog.LV{"err", err})
 				return
