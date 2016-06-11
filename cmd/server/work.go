@@ -21,13 +21,11 @@ type workResponse struct {
 
 func newWorkResponse(jobID msg.JobID, results map[string]interface{}) *workResponse {
 	workRes := &workResponse{
+		JobID:   strconv.FormatUint(uint64(jobID), 10),
 		Results: make(map[string]interface{}),
 	}
 	for workerID, r := range results {
 		data := make(map[string]bool)
-		if workRes.JobID == "" {
-			workRes.JobID = strconv.FormatUint(uint64(jobID), 10)
-		}
 		for k, v := range r.(map[interface{}]interface{}) {
 			data[k.(string)] = v.(bool)
 		}
