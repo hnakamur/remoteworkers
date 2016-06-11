@@ -128,12 +128,12 @@ func (w *Worker) readPump() error {
 		if err != nil {
 			w.logger.Error(ltsvlog.LV{"msg", "read error"},
 				ltsvlog.LV{"err", err})
-			return nil
+			return err
 		}
 		if wsMsgType != websocket.BinaryMessage {
 			w.logger.ErrorWithStack(ltsvlog.LV{"msg", "unexpected wsMsgType"},
 				ltsvlog.LV{"wsMsgType", wsMsgType})
-			return nil
+			return err
 		}
 		dec := msgpack.NewDecoder(r)
 		var msgType msg.MessageType
@@ -141,7 +141,7 @@ func (w *Worker) readPump() error {
 		if err != nil {
 			w.logger.ErrorWithStack(ltsvlog.LV{"msg", "decode error"},
 				ltsvlog.LV{"err", err})
-			return nil
+			return err
 		}
 		switch msgType {
 		case msg.RegisterWorkerResultMsg:
@@ -150,7 +150,7 @@ func (w *Worker) readPump() error {
 			if err != nil {
 				w.logger.ErrorWithStack(ltsvlog.LV{"msg", "decode error"},
 					ltsvlog.LV{"err", err})
-				return nil
+				return err
 			}
 			if registerWorkerResult.Error != "" {
 				w.logger.ErrorWithStack(ltsvlog.LV{"msg", "failed to register worker"},
@@ -166,7 +166,7 @@ func (w *Worker) readPump() error {
 			if err != nil {
 				w.logger.ErrorWithStack(ltsvlog.LV{"msg", "decode error"},
 					ltsvlog.LV{"err", err})
-				return nil
+				return err
 			}
 
 			if w.logger.DebugEnabled() {
@@ -192,7 +192,7 @@ func (w *Worker) readPump() error {
 		default:
 			w.logger.ErrorWithStack(ltsvlog.LV{"msg", "unexpected MessageType"},
 				ltsvlog.LV{"messageType", msgType})
-			return nil
+			return errors.New("unexpected MessageType")
 		}
 	}
 }
