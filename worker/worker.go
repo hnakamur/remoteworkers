@@ -14,6 +14,20 @@ import (
 
 type WorkFunc func(params interface{}) interface{}
 
+type WorkerConfig struct {
+	SendChannelLen          int
+	DelayAfterSendingClose  time.Duration
+	DelayBeforeReconnecting time.Duration
+}
+
+func DefaultWorkerConfig() WorkerConfig {
+	return WorkerConfig{
+		SendChannelLen:          256,
+		DelayAfterSendingClose:  time.Second,
+		DelayBeforeReconnecting: time.Second,
+	}
+}
+
 type Worker struct {
 	serverURL               url.URL
 	workerIDHeaderName      string
@@ -28,15 +42,15 @@ type Worker struct {
 	logger                  ltsvlog.LogWriter
 }
 
-func NewWorker(serverURL url.URL, workerIDHeaderName, workerID string, sendChannelLength int, workFunc WorkFunc, delayAfterSendingClose, delayBeforeReconnecting time.Duration, logger ltsvlog.LogWriter) *Worker {
+func NewWorker(serverURL url.URL, workerIDHeaderName, workerID string, workFunc WorkFunc, logger ltsvlog.LogWriter, config WorkerConfig) *Worker {
 	return &Worker{
 		serverURL:               serverURL,
 		workerIDHeaderName:      workerIDHeaderName,
 		workerID:                workerID,
-		sendChannelLength:       sendChannelLength,
+		sendChannelLength:       config.SendChannelLen,
 		workFunc:                workFunc,
-		delayAfterSendingClose:  delayAfterSendingClose,
-		delayBeforeReconnecting: delayBeforeReconnecting,
+		delayAfterSendingClose:  config.DelayAfterSendingClose,
+		delayBeforeReconnecting: config.DelayBeforeReconnecting,
 		logger:                  logger,
 	}
 }
