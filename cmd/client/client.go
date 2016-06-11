@@ -16,8 +16,7 @@ import (
 )
 
 type workRequest struct {
-	Type   string            `json:"type"`
-	Params map[string]string `json:"params,omitempty"`
+	Params map[string]string `json:"params"`
 }
 
 func main() {
@@ -28,7 +27,6 @@ func main() {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	workReq := &workRequest{
-		Type: "type1",
 		Params: map[string]string{
 			"targets": "targets1,targets2",
 		},

@@ -11,8 +11,7 @@ import (
 )
 
 type workRequest struct {
-	Type   string      `json:"type"`
-	Params interface{} `json:"params,omitempty"`
+	Params interface{} `json:"params"`
 }
 
 type workResponse struct {
@@ -55,7 +54,6 @@ func serveWork(w http.ResponseWriter, r *http.Request) {
 	}
 
 	job := msg.Job{
-		Type:   v.Type,
 		Params: v.Params,
 	}
 	resultC := make(chan jobResultOrError)

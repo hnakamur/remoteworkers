@@ -6,7 +6,6 @@ type JobID uint64
 
 type Job struct {
 	ID     JobID       `json:"-"`
-	Type   string      `json:"type"`
 	Params interface{} `json:"params,omitempty"`
 }
 
@@ -16,9 +15,9 @@ var (
 )
 
 func (j *Job) EncodeMsgpack(enc *msgpack.Encoder) error {
-	return enc.Encode(j.ID, j.Type, j.Params)
+	return enc.Encode(j.ID, j.Params)
 }
 
 func (j *Job) DecodeMsgpack(enc *msgpack.Decoder) error {
-	return enc.Decode(&j.ID, &j.Type, &j.Params)
+	return enc.Decode(&j.ID, &j.Params)
 }
