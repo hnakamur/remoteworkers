@@ -18,8 +18,8 @@ import (
 
 var addr = flag.String("addr", "localhost:8080", "http service address")
 var workerID = flag.String("id", "worker1", "worker ID")
-var minDelay = flag.Duration("min-delay", 1*time.Second, "min delay")
-var maxDelay = flag.Duration("max-delay", 5*time.Second, "max delay")
+var minDelay = flag.Duration("min-delay", 0*time.Second, "min delay")
+var maxDelay = flag.Duration("max-delay", 2*time.Second, "max delay")
 
 func randomDelay() time.Duration {
 	return time.Duration(int64(*minDelay) + rand.Int63n(int64(*maxDelay)-int64(*minDelay)))
