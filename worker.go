@@ -59,22 +59,31 @@ func NewWorker(serverURL url.URL, workerIDHeaderName, workerID string, workFunc 
 	}
 }
 
-// write writes a message with the given messagepack message type, application message type and message.
-func writeMessage(c *websocket.Conn, mt int, tm typeAndMessage) error {
-	w, err := c.NextWriter(mt)
+// writeMessage writes a message with the given messagepack message type, application message type and message.
+func (w *Worker) writeMessage(c *websocket.Conn, mt int, tm typeAndMessage) error {
+	writer, err := c.NextWriter(mt)
 	if err != nil {
+		w.logger.ErrorWithStack(ltsvlog.LV{"msg", "error in websocket.NextWriter"},
+			ltsvlog.LV{"mt", mt},
+			ltsvlog.LV{"err", err})
 		return err
 	}
-	enc := msgpack.NewEncoder(w)
+	enc := msgpack.NewEncoder(writer)
 	err = enc.Encode(tm.Type)
 	if err != nil {
+		w.logger.ErrorWithStack(ltsvlog.LV{"msg", "encode error"},
+			ltsvlog.LV{"tm.Type", tm.Type},
+			ltsvlog.LV{"err", err})
 		return err
 	}
 	err = enc.Encode(tm.Message)
 	if err != nil {
+		w.logger.ErrorWithStack(ltsvlog.LV{"msg", "encode error"},
+			ltsvlog.LV{"tm.Message", tm.Message},
+			ltsvlog.LV{"err", err})
 		return err
 	}
-	return w.Close()
+	return writer.Close()
 }
 
 // Run runs a worker. The worker connects to the remote server over the websocket.
@@ -114,7 +123,7 @@ func (w *Worker) Run(ctx context.Context) error {
 		for {
 			select {
 			case tm := <-w.sendC:
-				err = writeMessage(c, websocket.BinaryMessage, tm)
+				err = w.writeMessage(c, websocket.BinaryMessage, tm)
 				if err != nil {
 					w.logger.ErrorWithStack(ltsvlog.LV{"msg", "write error"},
 						ltsvlog.LV{"err", err})

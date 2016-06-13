@@ -170,20 +170,29 @@ func (c *Conn) write(mt int, payload []byte) error {
 	return c.ws.WriteMessage(mt, payload)
 }
 
-// write writes a message with the given messagepack message type, application message type and message.
+// writeMessage writes a message with the given messagepack message type, application message type and message.
 func (c *Conn) writeMessage(mt int, tm typeAndMessage) error {
 	c.ws.SetWriteDeadline(time.Now().Add(c.writeWait))
 	w, err := c.ws.NextWriter(mt)
 	if err != nil {
+		c.logger.ErrorWithStack(ltsvlog.LV{"msg", "error in websocket.NextWriter"},
+			ltsvlog.LV{"mt", mt},
+			ltsvlog.LV{"err", err})
 		return err
 	}
 	enc := msgpack.NewEncoder(w)
 	err = enc.Encode(tm.Type)
 	if err != nil {
+		c.logger.ErrorWithStack(ltsvlog.LV{"msg", "encode error"},
+			ltsvlog.LV{"tm.Type", tm.Type},
+			ltsvlog.LV{"err", err})
 		return err
 	}
 	err = enc.Encode(tm.Message)
 	if err != nil {
+		c.logger.ErrorWithStack(ltsvlog.LV{"msg", "encode error"},
+			ltsvlog.LV{"tm.Message", tm.Message},
+			ltsvlog.LV{"err", err})
 		return err
 	}
 	return w.Close()
