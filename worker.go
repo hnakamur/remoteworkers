@@ -1,6 +1,7 @@
 package remoteworkers
 
 import (
+	"encoding/gob"
 	"errors"
 	"net/url"
 	"time"
@@ -8,7 +9,6 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/hnakamur/ltsvlog"
 	"golang.org/x/net/context"
-	"gopkg.in/vmihailenco/msgpack.v2"
 )
 
 // WorkFunc is a function type for a worker to work.
@@ -68,7 +68,7 @@ func (w *Worker) writeMessage(c *websocket.Conn, mt int, tm typeAndMessage) erro
 			ltsvlog.LV{"err", err})
 		return err
 	}
-	enc := msgpack.NewEncoder(writer)
+	enc := gob.NewEncoder(writer)
 	err = enc.Encode(tm.Type)
 	if err != nil {
 		w.logger.ErrorWithStack(ltsvlog.LV{"msg", "encode error"},
@@ -185,7 +185,7 @@ func (w *Worker) readPump() error {
 				ltsvlog.LV{"wsMsgType", wsMsgType})
 			return err
 		}
-		dec := msgpack.NewDecoder(r)
+		dec := gob.NewDecoder(r)
 		var msgType messageType
 		err = dec.Decode(&msgType)
 		if err != nil {

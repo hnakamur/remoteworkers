@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/gob"
 	"flag"
 	"math/rand"
 	"net/url"
@@ -48,7 +49,7 @@ func main() {
 		time.Sleep(randomDelay())
 
 		// NOTE: Do some work.
-		p := params.(map[interface{}]interface{})
+		p := params.(map[string]interface{})
 		targets := strings.Split(p["targets"].(string), ",")
 		results := make(map[string]bool)
 		for _, target := range targets {
@@ -56,6 +57,8 @@ func main() {
 		}
 		return results
 	}
+	gob.Register(make(map[string]bool))
+	gob.Register(make(map[string]interface{}))
 	w := remoteworkers.NewWorker(u, "X-Worker-ID", *workerID, workFunc, ltsvlog.Logger, remoteworkers.DefaultWorkerConfig())
 	err := w.Run(ctx)
 	if err != nil {

@@ -1,11 +1,11 @@
 package remoteworkers
 
 import (
+	"encoding/gob"
 	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/hnakamur/ltsvlog"
-	"gopkg.in/vmihailenco/msgpack.v2"
 )
 
 // ConnConfig is a configuration for Conn.
@@ -130,7 +130,7 @@ func (c *Conn) readPump() {
 			return
 		}
 
-		dec := msgpack.NewDecoder(r)
+		dec := gob.NewDecoder(r)
 		var msgType messageType
 		err = dec.Decode(&msgType)
 		if err != nil {
@@ -180,7 +180,7 @@ func (c *Conn) writeMessage(mt int, tm typeAndMessage) error {
 			ltsvlog.LV{"err", err})
 		return err
 	}
-	enc := msgpack.NewEncoder(w)
+	enc := gob.NewEncoder(w)
 	err = enc.Encode(tm.Type)
 	if err != nil {
 		c.logger.ErrorWithStack(ltsvlog.LV{"msg", "encode error"},

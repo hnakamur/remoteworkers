@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/gob"
 	"encoding/json"
 	"flag"
 	"net/http"
@@ -31,8 +32,8 @@ func newWorkResponse(jobID uint64, results map[string]interface{}) *workResponse
 	}
 	for workerID, r := range results {
 		data := make(map[string]bool)
-		for k, v := range r.(map[interface{}]interface{}) {
-			data[k.(string)] = v.(bool)
+		for k, v := range r.(map[string]bool) {
+			data[k] = v
 		}
 		workRes.Results[workerID] = data
 	}
@@ -121,6 +122,8 @@ func main() {
 		}
 	}()
 
+	gob.Register(make(map[string]bool))
+	gob.Register(make(map[string]interface{}))
 	hub := remoteworkers.NewHub(ltsvlog.Logger)
 	go func() {
 		err := hub.Run(ctx)
