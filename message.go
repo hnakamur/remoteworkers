@@ -11,6 +11,11 @@ const (
 	workerResultMsg         messageType = 3
 )
 
+type typeAndMessage struct {
+	Type    messageType
+	Message interface{}
+}
+
 type registerWorkerResultMessage struct {
 	Error string
 }

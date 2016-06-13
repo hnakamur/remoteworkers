@@ -8,7 +8,6 @@ import (
 	"golang.org/x/net/context"
 
 	"github.com/hnakamur/ltsvlog"
-	"gopkg.in/vmihailenco/msgpack.v2"
 )
 
 // Hub maintains the set of active connections and broadcasts messages to the
@@ -139,17 +138,14 @@ func (h *Hub) Run(ctx context.Context) error {
 		case req := <-h.broadcastToWorkersC:
 			job := req.job
 			job.ID = atomic.AddUint64(&h.jobID, 1)
-			message, err := msgpack.Marshal(jobMsg, &job)
-			if err != nil {
-				h.logger.ErrorWithStack(ltsvlog.LV{"msg", "encode error"},
-					ltsvlog.LV{"job", job},
-					ltsvlog.LV{"err", err})
-				return err
+			tm := typeAndMessage{
+				Type:    jobMsg,
+				Message: &job,
 			}
 			resultsBuf := newWorkerResultsBuffer(req.resultC)
 			for workerID, conn := range h.workers {
 				select {
-				case conn.sendC <- message:
+				case conn.sendC <- tm:
 					resultsBuf.results[workerID] = nil
 				default:
 					close(conn.sendC)

@@ -49,7 +49,7 @@ type Conn struct {
 	ws *websocket.Conn
 
 	// Buffered channel of outbound messages.
-	sendC chan []byte
+	sendC chan typeAndMessage
 
 	// Worker ID.
 	workerID string
@@ -72,7 +72,7 @@ func NewConn(ws *websocket.Conn, workerID string, logger ltsvlog.LogWriter, conf
 	return &Conn{
 		logger:         logger,
 		ws:             ws,
-		sendC:          make(chan []byte, config.SendChannelLen),
+		sendC:          make(chan typeAndMessage, config.SendChannelLen),
 		workerID:       workerID,
 		writeWait:      config.WriteWait,
 		pongWait:       config.PongWait,
@@ -94,16 +94,11 @@ func (c *Conn) RegisterToHub(h *Hub) error {
 	if !registered {
 		registerWorkerResult.Error = "woker with same name already exists"
 	}
-	message, err := msgpack.Marshal(registerWorkerResultMsg, &registerWorkerResult)
-	if err != nil {
-		c.logger.ErrorWithStack(ltsvlog.LV{"msg", "encode error"},
-			ltsvlog.LV{"registerWorkerResult", registerWorkerResult},
-			ltsvlog.LV{"err", err})
-		close(c.sendC)
-		return err
-	}
 	c.hub = h
-	c.sendC <- message
+	c.sendC <- typeAndMessage{
+		Type:    registerWorkerResultMsg,
+		Message: &registerWorkerResult,
+	}
 	return nil
 }
 
@@ -175,6 +170,25 @@ func (c *Conn) write(mt int, payload []byte) error {
 	return c.ws.WriteMessage(mt, payload)
 }
 
+// write writes a message with the given messagepack message type, application message type and message.
+func (c *Conn) writeMessage(mt int, tm typeAndMessage) error {
+	c.ws.SetWriteDeadline(time.Now().Add(c.writeWait))
+	w, err := c.ws.NextWriter(mt)
+	if err != nil {
+		return err
+	}
+	enc := msgpack.NewEncoder(w)
+	err = enc.Encode(tm.Type)
+	if err != nil {
+		return err
+	}
+	err = enc.Encode(tm.Message)
+	if err != nil {
+		return err
+	}
+	return w.Close()
+}
+
 // writePump pumps messages from the c.hub to the websocket connection.
 func (c *Conn) writePump() {
 	ticker := time.NewTicker(c.pingPeriod)
@@ -184,12 +198,12 @@ func (c *Conn) writePump() {
 	}()
 	for {
 		select {
-		case message, ok := <-c.sendC:
+		case tm, ok := <-c.sendC:
 			if !ok {
 				c.write(websocket.CloseMessage, []byte{})
 				return
 			}
-			if err := c.write(websocket.BinaryMessage, message); err != nil {
+			if err := c.writeMessage(websocket.BinaryMessage, tm); err != nil {
 				return
 			}
 		case <-ticker.C:
