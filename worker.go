@@ -37,7 +37,7 @@ type Worker struct {
 	workerID                string
 	conn                    *websocket.Conn
 	sendChannelLength       int
-	sendC                   chan []byte
+	sendC                   chan typeAndMessage
 	doneC                   chan struct{}
 	workFunc                WorkFunc
 	delayAfterSendingClose  time.Duration
@@ -59,6 +59,24 @@ func NewWorker(serverURL url.URL, workerIDHeaderName, workerID string, workFunc 
 	}
 }
 
+// write writes a message with the given messagepack message type, application message type and message.
+func writeMessage(c *websocket.Conn, mt int, tm typeAndMessage) error {
+	w, err := c.NextWriter(mt)
+	if err != nil {
+		return err
+	}
+	enc := msgpack.NewEncoder(w)
+	err = enc.Encode(tm.Type)
+	if err != nil {
+		return err
+	}
+	err = enc.Encode(tm.Message)
+	if err != nil {
+		return err
+	}
+	return w.Close()
+}
+
 // Run runs a worker. The worker connects to the remote server over the websocket.
 // Then it waits for a job to be sent from the server and does a work and sends
 // the result to the server.
@@ -70,7 +88,7 @@ func (w *Worker) Run(ctx context.Context) error {
 	}
 	for {
 		w.doneC = make(chan struct{})
-		w.sendC = make(chan []byte, w.sendChannelLength)
+		w.sendC = make(chan typeAndMessage, w.sendChannelLength)
 		errC := make(chan error)
 
 		w.logger.Info(ltsvlog.LV{"msg", "connecting to server"}, ltsvlog.LV{"address", w.serverURL.String()})
@@ -95,8 +113,8 @@ func (w *Worker) Run(ctx context.Context) error {
 
 		for {
 			select {
-			case b := <-w.sendC:
-				err = c.WriteMessage(websocket.BinaryMessage, b)
+			case tm := <-w.sendC:
+				err = writeMessage(c, websocket.BinaryMessage, tm)
 				if err != nil {
 					w.logger.ErrorWithStack(ltsvlog.LV{"msg", "write error"},
 						ltsvlog.LV{"err", err})
@@ -203,14 +221,10 @@ func (w *Worker) readPump() error {
 					JobID: job.ID,
 					Data:  data,
 				}
-				b, err := msgpack.Marshal(workerResultMsg, &jobResult)
-				if err != nil {
-					w.logger.ErrorWithStack(ltsvlog.LV{"msg", "encode error"},
-						ltsvlog.LV{"jobResult", jobResult},
-						ltsvlog.LV{"err", err})
-					return
+				w.sendC <- typeAndMessage{
+					Type:    workerResultMsg,
+					Message: &jobResult,
 				}
-				w.sendC <- b
 			}()
 		default:
 			w.logger.ErrorWithStack(ltsvlog.LV{"msg", "unexpected MessageType"},
